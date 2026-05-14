@@ -2,7 +2,7 @@
 // Centralises: device info, Clarity, custom events, session timeout, friction counters.
 
 (function () {
-  const BUILD = "v0.3.3-beta";
+  const BUILD = "v0.3.4-beta";
   const SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000;   // 24h inactivity → logout
   const ACTIVITY_PING_MS   = 30 * 1000;             // touch last-activity every 30s of activity
 
