@@ -345,21 +345,23 @@
       const t = $("#town").value;
       if (!t) { alert("Please choose a town."); return; }
 
-      // Save town on the tester
-      const { data: tu } = await sb.from("testers")
+      // Save town on the tester (v0.4.4: maybeSingle, merge locally on null)
+      const { data: tu, error: tuErr } = await sb.from("testers")
         .update({ algarve_area: t })
-        .eq("id", state.tester.id).select().single();
-      if (tu) state.tester = tu;
+        .eq("id", state.tester.id).select().maybeSingle();
+      if (tuErr) { alert("Could not save town: " + tuErr.message); return; }
+      state.tester = tu || { ...state.tester, algarve_area: t };
 
       // Generate fake property anchored to chosen town if not yet or town changed
       let prop = appPropertyFromRow(state.application);
       if (!prop || prop.town !== t) {
         prop = window.APC_FAKE.generate(t);
         const cols = propertyToColumns(prop);
-        const { data: au } = await sb.from("beta_applications")
+        const { data: au, error: auErr } = await sb.from("beta_applications")
           .update(cols)
-          .eq("id", state.application.id).select().single();
-        if (au) state.application = au;
+          .eq("id", state.application.id).select().maybeSingle();
+        if (auErr) { alert("Could not save property: " + auErr.message); return; }
+        state.application = au || { ...state.application, ...cols };
       }
       goStep(3);
     };
@@ -518,10 +520,12 @@
     $("#btn-back").onclick = () => goStep(2);
     $("#btn-regen").onclick = async () => {
       const newProp = window.APC_FAKE.generate(state.tester.algarve_area);
-      const { data } = await sb.from("beta_applications")
-        .update(propertyToColumns(newProp))
-        .eq("id", state.application.id).select().single();
-      if (data) state.application = data;
+      const cols = propertyToColumns(newProp);
+      const { data, error } = await sb.from("beta_applications")
+        .update(cols)
+        .eq("id", state.application.id).select().maybeSingle();
+      if (error) { alert("Could not regenerate property: " + error.message); return; }
+      state.application = data || { ...state.application, ...cols };
       renderReviewProperty();
     };
     $("#btn-next").onclick = async () => {
@@ -545,10 +549,12 @@
         scie_flag:               bandDef.scie,
         scie_details:            scieDetails
       };
-      const { data, error } = await sb.from("beta_applications")
-        .update(update).eq("id", state.application.id).select().single();
+      // v0.4.4 — don't rely on .single() returning a row (RLS read can race the write).
+      // Just commit and merge locally; the write is what matters.
+      const { error } = await sb.from("beta_applications")
+        .update(update).eq("id", state.application.id);
       if (error) { alert("Could not save capacity classification: " + error.message); return; }
-      if (data) state.application = data;
+      state.application = { ...state.application, ...update };
       goStep(4);
     };
   }
@@ -622,10 +628,11 @@
         alert("Please answer all four questions before continuing.");
         return;
       }
-      const { data } = await sb.from("beta_applications")
+      const { data, error } = await sb.from("beta_applications")
         .update({ compliance_answers: ans })
-        .eq("id", state.application.id).select().single();
-      if (data) state.application = data;
+        .eq("id", state.application.id).select().maybeSingle();
+      if (error) { alert("Could not save answers: " + error.message); return; }
+      state.application = data || { ...state.application, compliance_answers: ans };
       goStep(5);
     };
   }
@@ -877,25 +884,27 @@
       });
       const provisional = (upl < DOC_SLOTS.length) || (pen + mis > 0);
       const chase = mis > 0 || pen > 0;
-      const { data, error } = await sb.from("beta_applications").update({
+      const updatePatch = {
         doc_status_records: next,
         uploaded_docs_count: upl,
         pending_docs_count: pen,
         missing_docs_count: mis,
         provisional_compliance: provisional,
         apc_chase_required: chase
-      }).eq("id", state.application.id).select().single();
+      };
+      const { data, error } = await sb.from("beta_applications")
+        .update(updatePatch).eq("id", state.application.id).select().maybeSingle();
       if (error) throw new Error("Save failed: " + error.message);
-      state.application = data;
+      state.application = data || { ...state.application, ...updatePatch };
     }
 
     // ---- helpers ----
     async function persistItems(newItems) {
       const { data, error } = await sb.from("beta_applications")
         .update({ uploaded_documents: newItems })
-        .eq("id", state.application.id).select().single();
+        .eq("id", state.application.id).select().maybeSingle();
       if (error) throw new Error("Save failed: " + error.message);
-      state.application = data;
+      state.application = data || { ...state.application, uploaded_documents: newItems };
     }
 
     async function doUpload(file, meta, msgEl) {
