@@ -254,6 +254,38 @@
     return state.tester;
   }
 
+  // v0.5.0 — list all applications for this tester (used by dashboard)
+  async function loadApplications() {
+    if (!state.tester) return [];
+    const { data, error } = await sb
+      .from("beta_applications")
+      .select("*")
+      .eq("tester_id", state.tester.id)
+      .order("created_at", { ascending: true });
+    if (error) throw new Error("beta_applications SELECT failed: " + (error.message || JSON.stringify(error)));
+    state.applications = data || [];
+    return state.applications;
+  }
+
+  // v0.5.0 — create a brand-new application row for an additional property
+  async function createNewApplication(label) {
+    const { data, error } = await sb.from("beta_applications").insert({
+      tester_id: state.tester.id,
+      status: "in_progress",
+      application_progress: 0,
+      property_label: label || null
+    }).select().single();
+    if (error) {
+      if (error.message && error.message.indexOf("APC_PROPERTY_CAP") !== -1) {
+        throw new Error("You've reached the 10-property limit on this account. Contact APC for portfolios over 10 properties.");
+      }
+      throw new Error("Could not create new property: " + error.message);
+    }
+    state.application = data;
+    state.applications = (state.applications || []).concat([data]);
+    return data;
+  }
+
   async function loadOrCreateApplication() {
     if (!state.tester) return null;
     const { data: apps, error: e1 } = await sb
@@ -294,6 +326,175 @@
       case 7: return renderFeedback();
       case 8: return renderComplete();
     }
+  }
+
+  // ============================================================
+  // v0.5.0 — First-visit choice + Dashboard (multi-property)
+  // Feature-flagged: only renders for whitelisted emails.
+  // ============================================================
+
+  function isMultiPropertyEnabled() {
+    const email = (state.user && state.user.email) || "";
+    return !!(window.APC_CONFIG && window.APC_CONFIG.hasFeature && window.APC_CONFIG.hasFeature("multi_property", email));
+  }
+
+  // First-visit: ask single vs multiple
+  function renderPropertyModeChoice() {
+    const name = state.tester && state.tester.full_name ? state.tester.full_name.split(" ")[0] : "there";
+    main().innerHTML = `
+      <div class="card">
+        <h1>Welcome ${escapeHTML(name)} 👋</h1>
+        <p class="muted">Before we start, tell us how many properties you'll be managing with APC. You can change this later.</p>
+
+        <div class="choice-grid" style="display:grid;gap:12px;margin-top:18px;">
+          <button class="choice-card" id="mode-single" style="text-align:left;padding:18px;border:2px solid var(--apc-border,#d9d9d9);border-radius:10px;background:#fff;cursor:pointer;">
+            <div style="font-size:17px;font-weight:600;margin-bottom:4px;">Just one property</div>
+            <div class="muted" style="font-size:14px;">A single villa, apartment or house. Quickest path — we'll take you straight through the 8-step flow.</div>
+          </button>
+          <button class="choice-card" id="mode-multiple" style="text-align:left;padding:18px;border:2px solid var(--apc-border,#d9d9d9);border-radius:10px;background:#fff;cursor:pointer;">
+            <div style="font-size:17px;font-weight:600;margin-bottom:4px;">Multiple properties <span class="muted" style="font-weight:400;font-size:14px;">(up to 10)</span></div>
+            <div class="muted" style="font-size:14px;">Portfolio owners, agencies, or anyone managing 2+ Algarve rentals. You'll get a dashboard to track each one.</div>
+          </button>
+        </div>
+
+        <div class="alert alert-info" style="margin-top:18px;">
+          <strong>Tip:</strong> with multiple properties, you only upload owner-level documents (passport, NIF, IBAN) once — they're reused across every property.
+        </div>
+      </div>
+    `;
+    $("#mode-single").onclick = async () => { await setPropertyMode("single"); };
+    $("#mode-multiple").onclick = async () => { await setPropertyMode("multiple"); };
+  }
+
+  async function setPropertyMode(mode) {
+    const { data, error } = await sb.from("testers")
+      .update({ property_mode: mode })
+      .eq("id", state.tester.id)
+      .select().maybeSingle();
+    if (error) { alert("Could not save choice: " + error.message); return; }
+    state.tester = data || { ...state.tester, property_mode: mode };
+    logSessionEvent("property_mode_chosen", { mode });
+    if (mode === "single") {
+      // Ensure single application exists, then jump to Step 1 (welcome)
+      await loadOrCreateApplication();
+      goStep(1);
+    } else {
+      // Multi-property — land on dashboard. No app auto-created.
+      await loadApplications();
+      renderDashboard();
+    }
+  }
+
+  // Multi-property dashboard hub
+  async function renderDashboard() {
+    renderHeader();
+    await loadApplications();
+    const apps = state.applications || [];
+    const count = apps.length;
+    const cap = 10;
+    const atCap = count >= cap;
+
+    const owner = (state.tester && state.tester.owner_documents) || {};
+    const ownerSlots = [
+      { key: "passport_id", label: "Passport / Government ID" },
+      { key: "nif",         label: "NIF — Portuguese Fiscal Number" },
+      { key: "iban_bank",   label: "IBAN / Bank Proof" },
+      { key: "fiscal_rep",  label: "Fiscal Representative Appointment" }
+    ];
+    const ownerFilled = ownerSlots.filter(s => owner[s.key] && owner[s.key].status === "uploaded").length;
+
+    const cards = apps.length ? apps.map((a, i) => {
+      const label = a.property_label || a.generated_property_town || `Property ${i+1}`;
+      const town = a.generated_property_town ? ` · ${escapeHTML(a.generated_property_town)}` : "";
+      const upl = a.uploaded_docs_count || 0;
+      const pen = a.pending_docs_count || 0;
+      const mis = a.missing_docs_count || 0;
+      const pill = a.status === "completed"
+        ? `<span class="status-pill status-good">✅ Complete</span>`
+        : (a.provisional_compliance === false
+            ? `<span class="status-pill status-good">✅ Compliant</span>`
+            : `<span class="status-pill status-warn">🟡 Provisional</span>`);
+      return `
+        <div class="property-card" data-app-id="${a.id}" style="border:1px solid var(--apc-border,#d9d9d9);border-radius:10px;padding:16px;margin-bottom:12px;cursor:pointer;background:#fff;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:16px;font-weight:600;">${escapeHTML(label)}${town}</div>
+              <div class="muted" style="font-size:13px;margin-top:4px;">Docs: ${upl} uploaded · ${pen} pending · ${mis} APC follow-up</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              ${pill}
+              <button class="btn btn-secondary btn-continue" data-app-id="${a.id}">Continue →</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("") : `
+      <div class="alert alert-info">
+        No properties yet. Add your first one to get started.
+      </div>
+    `;
+
+    main().innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div>
+            <h1 style="margin-bottom:4px;">Your properties</h1>
+            <p class="muted">${count} of ${cap} properties · portfolio dashboard</p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-property"${atCap ? " disabled title='Contact APC for portfolios over 10 properties'" : ""}>+ Add ${count ? "another" : "your first"} property</button>
+        </div>
+
+        ${atCap ? `<div class="alert alert-warn" style="margin-top:12px;"><strong>Portfolio cap reached.</strong> You've added the maximum 10 properties. Contact <a href="mailto:hello@algarvepropertycompliance.com">hello@algarvepropertycompliance.com</a> for larger portfolios.</div>` : ""}
+
+        <div style="margin-top:18px;">${cards}</div>
+
+        <div style="margin-top:24px;padding-top:18px;border-top:1px solid var(--apc-border,#e5e5e5);">
+          <h3 style="margin-bottom:6px;">Owner documents</h3>
+          <p class="muted" style="font-size:14px;margin-bottom:10px;">Uploaded once · shared across all your properties</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
+            ${ownerSlots.map(s => {
+              const st = (owner[s.key] && owner[s.key].status) || null;
+              const icon = st === "uploaded" ? "✅" : (st === "missing" ? "❌" : "—");
+              return `<div style="font-size:14px;">${icon} ${escapeHTML(s.label)}</div>`;
+            }).join("")}
+          </div>
+          <p class="muted" style="font-size:13px;margin-top:10px;">${ownerFilled}/${ownerSlots.length} owner docs uploaded. <em>Owner-doc management coming in v0.5.1.</em></p>
+        </div>
+      </div>
+    `;
+
+    // wire up events
+    const addBtn = $("#btn-add-property");
+    if (addBtn && !atCap) {
+      addBtn.onclick = async () => {
+        try {
+          const label = window.prompt("Give this property a short label (e.g. 'Carvoeiro villa'):", `Property ${count+1}`);
+          if (label === null) return;
+          await createNewApplication(label.trim() || `Property ${count+1}`);
+          logSessionEvent("property_added", { count_after: count + 1 });
+          goStep(1);
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    }
+    document.querySelectorAll(".btn-continue, .property-card").forEach(el => {
+      el.onclick = (ev) => {
+        ev.stopPropagation();
+        const id = el.getAttribute("data-app-id") || el.closest(".property-card").getAttribute("data-app-id");
+        const app = apps.find(a => a.id === id);
+        if (!app) return;
+        state.application = app;
+        // resume at correct step (mirror boot() logic)
+        let step = 1;
+        if (app.status === "completed") step = 8;
+        else if (app.feedback_data && Object.keys(app.feedback_data).length) step = 7;
+        else if (app.compliance_answers && Object.keys(app.compliance_answers).length) step = 5;
+        else if (app.generated_property_town) step = 3;
+        else if (state.tester.algarve_area) step = 2;
+        goStep(step);
+      };
+    });
   }
 
   // STEP 1
@@ -1412,6 +1613,27 @@
 
     // Help button on every screen
     TRACK.injectHelpButton({ stepLabel: STEPS[state.step - 1] });
+
+    // v0.5.0 — Multi-property routing (feature-flagged, Dave-only for now)
+    if (isMultiPropertyEnabled()) {
+      // 1. No property_mode set yet → first-visit choice screen
+      if (!state.tester.property_mode) {
+        state.stepStart = Date.now();
+        renderHeader();
+        renderPropertyModeChoice();
+        logSessionEvent("session_start");
+        return;
+      }
+      // 2. Multiple-property mode → dashboard hub (skip auto-resume into a single app)
+      if (state.tester.property_mode === "multiple") {
+        state.stepStart = Date.now();
+        renderHeader();
+        await renderDashboard();
+        logSessionEvent("session_start");
+        return;
+      }
+      // 3. Single-property mode → fall through to legacy resume logic
+    }
 
     if (state.application.status === "completed") {
       state.step = 8;

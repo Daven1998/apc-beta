@@ -10,9 +10,23 @@ window.APC_CONFIG = {
     "hello@algarvepropertycompliance.com",
     "lucy@lockerspace.co.uk"
   ],
-  BETA_BUILD: "v0.4.4-beta",
+  BETA_BUILD: "v0.5.0-beta",
   // Where the magic-link email returns users
-  REDIRECT_URL: window.location.origin + window.location.pathname
+  REDIRECT_URL: window.location.origin + window.location.pathname,
+  // v0.5.0 Feature flags — controlled rollout of multi-property
+  FEATURE_FLAGS: {
+    // Whitelist of emails who see the multi-property choice + dashboard.
+    // Empty array = feature disabled for everyone. Add emails to roll out.
+    multi_property_emails: [
+      "dave@algarvepropertycompliance.com"
+    ]
+  }
+};
+
+window.APC_CONFIG.hasFeature = function(name, email) {
+  const ff = (window.APC_CONFIG.FEATURE_FLAGS || {})[name + "_emails"];
+  if (!Array.isArray(ff)) return false;
+  return ff.includes((email || "").toLowerCase());
 };
 
 window.supabaseClient = window.supabase.createClient(
