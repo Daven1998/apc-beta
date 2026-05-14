@@ -75,7 +75,7 @@
 
 <footer class="apc-footer">
   <div>APC admin · Beta build · Test data only</div>
-  <div class="apc-build">Beta Build v0.3.4</div>
+  <div class="apc-build">Beta Build v0.4.0</div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -233,6 +233,11 @@
       </div>
 
       <div class="card">
+        <h2>Document uploads</h2>
+        ${renderUploadAdmin(apps, testers)}
+      </div>
+
+      <div class="card">
         <h2>Step funnel</h2>
         <p class="muted">How many testers reached each step.</p>
         <div class="funnel" style="margin-top:30px;margin-bottom:30px">
@@ -335,6 +340,80 @@
         }, 800);
       });
     });
+  }
+
+  // Document slot definitions (mirror app.js)
+  const DOC_SLOTS_ADMIN = [
+    { slot: "passport_id",        title: "Passport / Government ID" },
+    { slot: "property_ownership", title: "Proof of Property Ownership" },
+    { slot: "al_licence",         title: "Existing AL Licence" },
+    { slot: "insurance",          title: "Property Insurance" },
+    { slot: "fire_safety",        title: "Fire Safety Documentation" },
+    { slot: "floor_plan",         title: "Floor Plan / Property Layout" },
+    { slot: "utility_tax",        title: "Utility / Tax Documentation" }
+  ];
+
+  function renderUploadAdmin(apps, testers) {
+    const testerById = Object.fromEntries(testers.map(t => [t.id, t]));
+    const totalApps = apps.length;
+    // Aggregate per slot
+    const slotCounts = {};
+    DOC_SLOTS_ADMIN.forEach(s => slotCounts[s.slot] = 0);
+    let totalAdditional = 0;
+    const additionalLabels = [];
+    apps.forEach(a => {
+      const docs = a.uploaded_documents || [];
+      const seen = new Set();
+      docs.forEach(d => {
+        const slot = d.slot || "_legacy";
+        if (slot === "additional") {
+          totalAdditional++;
+          if (d.label) additionalLabels.push({ label: d.label, tester: testerById[a.tester_id], when: d.uploaded_at });
+        } else if (slotCounts.hasOwnProperty(slot) && !seen.has(slot)) {
+          slotCounts[slot]++;
+          seen.add(slot);
+        }
+      });
+    });
+
+    const aggTable = DOC_SLOTS_ADMIN.map(s => {
+      const have = slotCounts[s.slot];
+      const missing = totalApps - have;
+      return `<tr><td>${esc(s.title)}</td><td>${have} / ${totalApps}</td><td>${missing}</td></tr>`;
+    }).join("");
+
+    const additionalListHTML = additionalLabels.length
+      ? `<ul style="margin:6px 0 0;padding-left:18px">${additionalLabels.map(a => `<li>${esc(a.label)} <span class="muted">— ${esc((a.tester && a.tester.email) || "unknown")} · ${fmtDate(a.when)}</span></li>`).join("")}</ul>`
+      : `<p class="muted" style="margin:6px 0 0">No additional documents uploaded yet.</p>`;
+
+    const perTester = apps.map(a => {
+      const t = testerById[a.tester_id] || {};
+      const docs = a.uploaded_documents || [];
+      const slotMap = {};
+      docs.forEach(d => { slotMap[d.slot || "_legacy"] = d; });
+      const slotCells = DOC_SLOTS_ADMIN.map(s => slotMap[s.slot] ? `<span class="pill pill-completed" title="${esc(slotMap[s.slot].name)}">✓</span>` : `<span class="pill pill-started">—</span>`).join(" ");
+      const addCount = docs.filter(d => d.slot === "additional").length;
+      return `<tr><td>${esc(t.full_name || t.email || "?")}</td><td>${slotCells}</td><td>${addCount}</td></tr>`;
+    }).join("") || `<tr><td colspan="3" style="text-align:center;color:var(--apc-muted);padding:14px">No applications yet</td></tr>`;
+
+    return `
+      <p class="muted">Uploads grouped by document category. Counts show how many testers have uploaded each category.</p>
+      <div class="scroll-x" style="margin-top:8px">
+        <table class="admin-table">
+          <thead><tr><th>Category</th><th>Uploaded</th><th>Missing</th></tr></thead>
+          <tbody>${aggTable}</tbody>
+        </table>
+      </div>
+      <h3 style="margin-top:16px;font-size:15px;color:var(--apc-green)">Additional documents (${totalAdditional})</h3>
+      ${additionalListHTML}
+      <h3 style="margin-top:16px;font-size:15px;color:var(--apc-green)">Per-tester breakdown</h3>
+      <div class="scroll-x">
+        <table class="admin-table">
+          <thead><tr><th>Tester</th><th>${DOC_SLOTS_ADMIN.map(s => `<span title=\"${esc(s.title)}\">${esc(s.title.split(/\s/)[0])}</span>`).join("</th><th>")}</th><th>+Extras</th></tr></thead>
+          <tbody>${perTester}</tbody>
+        </table>
+      </div>
+    `;
   }
 
   function statusPill(r) {

@@ -474,83 +474,251 @@
     };
   }
 
-  // STEP 5
+  // STEP 5 — Required Documents (structured slots + additional)
+  const DOC_SLOTS = [
+    { section: "Identity & Ownership", slot: "passport_id",      title: "Passport / Government ID",   helper: "Photo or scan of passport or government-issued ID.",                              required: false },
+    { section: "Identity & Ownership", slot: "property_ownership", title: "Proof of Property Ownership", helper: "Land registry, deed, escritura or ownership document.",                            required: false },
+    { section: "Property Compliance",  slot: "al_licence",        title: "Existing AL Licence",        helper: "Upload your current Alojamento Local licence if available.",                       required: false },
+    { section: "Property Compliance",  slot: "insurance",         title: "Property Insurance",         helper: "Public liability or property insurance documentation.",                            required: false },
+    { section: "Property Compliance",  slot: "fire_safety",       title: "Fire Safety Documentation",  helper: "Fire safety certificates, assessments or inspection records.",                    required: false },
+    { section: "Property Compliance",  slot: "floor_plan",        title: "Floor Plan / Property Layout", helper: "Floor plan or property layout if available.",                                    required: false },
+    { section: "Property Compliance",  slot: "utility_tax",       title: "Utility / Tax Documentation", helper: "Utility bill, council tax or property tax documentation.",                       required: false },
+  ];
+  const ADDITIONAL_SLOT = "additional";
+
   async function renderUpload() {
-    const existing = state.application.uploaded_documents || [];
-    main().innerHTML = `
+    const items = state.application.uploaded_documents || [];
+    const bySlot = {};
+    items.forEach(it => {
+      const key = it.slot || "_legacy";
+      (bySlot[key] = bySlot[key] || []).push(it);
+    });
+
+    const sections = {};
+    DOC_SLOTS.forEach(d => { (sections[d.section] = sections[d.section] || []).push(d); });
+
+    const slotCardHTML = (d) => {
+      const uploaded = (bySlot[d.slot] || []);
+      const hasFile = uploaded.length > 0;
+      const u = uploaded[0]; // single-file per slot for v1
+      return `
+        <div class="doc-card${hasFile ? ' doc-card-done' : ''}" data-slot="${d.slot}">
+          <div class="doc-card-head">
+            <div class="doc-card-title">${escapeHTML(d.title)}</div>
+            <span class="doc-badge ${d.required ? 'doc-badge-required' : 'doc-badge-optional'}">${d.required ? 'REQUIRED' : 'OPTIONAL'}</span>
+          </div>
+          <div class="doc-card-helper">${escapeHTML(d.helper)}</div>
+          <div class="doc-card-types muted">Accepts: PDF, JPG or PNG · up to 10 MB</div>
+          ${hasFile ? `
+            <div class="doc-card-status">
+              <div class="doc-uploaded-row">
+                <span class="doc-tick">✅ Uploaded</span>
+                <span class="doc-filename">${escapeHTML(u.name)}</span>
+              </div>
+              <div class="doc-uploaded-meta muted">${new Date(u.uploaded_at).toLocaleString()} · ${(u.size/1024).toFixed(0)} KB</div>
+              <div class="doc-actions">
+                <button type="button" class="btn btn-secondary btn-sm doc-replace" data-slot="${d.slot}">Replace</button>
+                <button type="button" class="btn btn-link btn-sm doc-remove" data-slot="${d.slot}">Remove</button>
+              </div>
+            </div>
+          ` : `
+            <label class="btn btn-secondary doc-upload-btn" for="file-${d.slot}">Choose file</label>
+            <input type="file" id="file-${d.slot}" class="doc-file-input" data-slot="${d.slot}" accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" />
+          `}
+          <div class="doc-card-msg" id="msg-${d.slot}"></div>
+        </div>
+      `;
+    };
+
+    const additionalItems = (bySlot[ADDITIONAL_SLOT] || []);
+    const additionalListHTML = additionalItems.map((u, idx) => `
+      <li class="doc-additional-item">
+        <div class="doc-additional-head">
+          <span class="doc-tick">✅</span>
+          <strong>${escapeHTML(u.label || 'Additional document')}</strong>
+        </div>
+        ${u.description ? `<div class="muted">${escapeHTML(u.description)}</div>` : ''}
+        <div class="muted">${escapeHTML(u.name)} · ${(u.size/1024).toFixed(0)} KB · ${new Date(u.uploaded_at).toLocaleString()}</div>
+        <button type="button" class="btn btn-link btn-sm doc-remove-additional" data-idx="${idx}">Remove</button>
+      </li>
+    `).join('');
+
+    let html = `
       <div class="card">
         ${renderSteps(5)}
-        <h2>Upload a test document</h2>
-        <p class="muted">
-          Upload any PDF, JPG, or PNG you don't mind sharing (under 10 MB).
-          This is just to test the upload flow — uploads are private and only visible to the APC team.
-        </p>
+        <h2>Required Documents</h2>
+        <p class="muted">Upload any documents you currently have available. Most documents are optional during beta testing.</p>
 
-        <div class="upload-zone">
-          <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" />
-          <div class="muted" style="margin-top:10px">PDF, JPG or PNG · up to 10 MB</div>
+        <details class="doc-why">
+          <summary>Why we ask for documents</summary>
+          <p class="muted">These documents help us understand your property and assess which compliance requirements may apply. We never share them outside the APC team.</p>
+        </details>
+    `;
+
+    Object.keys(sections).forEach(secName => {
+      html += `<h3 class="doc-section-title">${escapeHTML(secName)}</h3>`;
+      html += `<div class="doc-section-grid">${sections[secName].map(slotCardHTML).join('')}</div>`;
+    });
+
+    html += `
+        <h3 class="doc-section-title">Additional Documents</h3>
+        <div class="doc-card doc-card-additional">
+          <div class="doc-card-helper">Got another supporting document? Label it first, then upload. Examples: PAT Certificate, Alarm Service Record, Inspection Photos.</div>
+          <label for="add-label">Document label <span class="req">*</span></label>
+          <input type="text" id="add-label" maxlength="80" placeholder="e.g. PAT Certificate" />
+          <label for="add-desc">Short description (optional)</label>
+          <input type="text" id="add-desc" maxlength="160" placeholder="e.g. Tested 2025-09-14" />
+          <label class="btn btn-secondary doc-upload-btn disabled" id="add-upload-label" for="add-file">Choose file</label>
+          <input type="file" id="add-file" class="doc-file-input" disabled accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" />
+          <div class="doc-card-types muted">Accepts: PDF, JPG or PNG · up to 10 MB</div>
+          <div class="doc-card-msg" id="msg-additional"></div>
+          ${additionalItems.length ? `<ul class="doc-additional-list">${additionalListHTML}</ul>` : ''}
         </div>
-
-        <ul class="file-list" id="file-list"></ul>
-        <div id="upload-msg"></div>
 
         <div class="btn-row">
           <button class="btn btn-secondary" id="btn-back">Back</button>
           <button class="btn btn-primary" id="btn-next">Continue</button>
         </div>
-        <p class="muted" style="text-align:center;margin-top:10px">
-          You can skip uploads and continue — it's optional for the beta.
-        </p>
+        <p class="muted" style="text-align:center;margin-top:10px">You can skip uploads and continue — they're optional for the beta.</p>
       </div>
     `;
 
-    function refreshList(items) {
-      $("#file-list").innerHTML = items.map(f =>
-        `<li><span>${escapeHTML(f.name)}</span><span class="muted">${(f.size/1024).toFixed(0)} KB</span></li>`
-      ).join("");
+    main().innerHTML = html;
+
+    // ---- helpers ----
+    async function persistItems(newItems) {
+      const { data, error } = await sb.from("beta_applications")
+        .update({ uploaded_documents: newItems })
+        .eq("id", state.application.id).select().single();
+      if (error) throw new Error("Save failed: " + error.message);
+      state.application = data;
     }
-    refreshList(existing);
 
-    $("#file-input").onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      logSessionEvent("upload_started", { name: file.name, size: file.size, type: file.type });
-
-      // Strict validation
-      const v = await TRACK.validateUploadFile(file, {
-        maxBytes: 10*1024*1024,
-        allowedExt: ["pdf","jpg","jpeg","png"]
-      });
+    async function doUpload(file, meta, msgEl) {
+      logSessionEvent("upload_started", { slot: meta.slot, name: file.name, size: file.size, type: file.type });
+      const v = await TRACK.validateUploadFile(file, { maxBytes: 10*1024*1024, allowedExt: ["pdf","jpg","jpeg","png"] });
       if (!v.ok) {
         TRACK.friction.bumpFailure();
-        $("#upload-msg").innerHTML = `<div class="alert alert-bad">${v.errors.map(escapeHTML).join("<br/>")}</div>`;
-        logSessionEvent("upload_failed", { reasons: v.errors });
-        $("#file-input").value = "";
-        return;
+        msgEl.innerHTML = `<div class="alert alert-bad">${v.errors.map(escapeHTML).join("<br/>")}</div>`;
+        logSessionEvent("upload_failed", { slot: meta.slot, reasons: v.errors });
+        return false;
       }
-
-      $("#upload-msg").innerHTML = `<div class="alert alert-info">Uploading…</div>`;
+      msgEl.innerHTML = `<div class="alert alert-info">Uploading…</div>`;
       const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g,"_");
-      const path = `${state.user.id}/${state.application.id}/${Date.now()}_${safeName}`;
-      const { error: upErr } = await sb.storage.from("beta-documents").upload(path, file, {
-        cacheControl: "3600", upsert: false
-      });
+      const path = `${state.user.id}/${state.application.id}/${meta.slot}/${Date.now()}_${safeName}`;
+      const { error: upErr } = await sb.storage.from("beta-documents").upload(path, file, { cacheControl: "3600", upsert: false });
       if (upErr) {
         TRACK.friction.bumpFailure();
-        $("#upload-msg").innerHTML = `<div class="alert alert-bad">${escapeHTML(upErr.message)}</div>`;
-        logSessionEvent("upload_failed", { reason: upErr.message });
+        msgEl.innerHTML = `<div class="alert alert-bad">${escapeHTML(upErr.message)}</div>`;
+        logSessionEvent("upload_failed", { slot: meta.slot, reason: upErr.message });
+        return false;
+      }
+      const newItem = {
+        slot: meta.slot,
+        label: meta.label || null,
+        description: meta.description || null,
+        name: file.name, size: file.size, type: file.type, path,
+        uploaded_at: new Date().toISOString()
+      };
+      const current = state.application.uploaded_documents || [];
+      let next;
+      if (meta.slot !== ADDITIONAL_SLOT) {
+        // single file per named slot — replace existing
+        next = current.filter(it => (it.slot || "_legacy") !== meta.slot).concat([newItem]);
+      } else {
+        next = current.concat([newItem]);
+      }
+      await persistItems(next);
+      logSessionEvent("upload_succeeded", { slot: meta.slot, path, label: meta.label || null });
+      return true;
+    }
+
+    async function removeItem(predicate, slotForLog) {
+      const current = state.application.uploaded_documents || [];
+      const next = current.filter(it => !predicate(it));
+      await persistItems(next);
+      logSessionEvent("upload_removed", { slot: slotForLog });
+    }
+
+    // ---- wire named-slot inputs ----
+    document.querySelectorAll(".doc-file-input[data-slot]").forEach(inp => {
+      inp.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const slot = inp.dataset.slot;
+        const msgEl = document.getElementById("msg-" + slot);
+        const ok = await doUpload(file, { slot }, msgEl);
+        if (ok) renderUpload();
+        else e.target.value = "";
+      };
+    });
+
+    // ---- wire replace / remove ----
+    document.querySelectorAll(".doc-replace").forEach(btn => {
+      btn.onclick = () => {
+        const slot = btn.dataset.slot;
+        // recreate hidden file input and trigger
+        const tmp = document.createElement("input");
+        tmp.type = "file";
+        tmp.accept = ".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf";
+        tmp.onchange = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const msgEl = document.getElementById("msg-" + slot);
+          const ok = await doUpload(file, { slot }, msgEl);
+          if (ok) renderUpload();
+        };
+        tmp.click();
+      };
+    });
+    document.querySelectorAll(".doc-remove").forEach(btn => {
+      btn.onclick = async () => {
+        const slot = btn.dataset.slot;
+        await removeItem(it => (it.slot || "_legacy") === slot, slot);
+        renderUpload();
+      };
+    });
+    document.querySelectorAll(".doc-remove-additional").forEach(btn => {
+      btn.onclick = async () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        const current = state.application.uploaded_documents || [];
+        // map idx within additional subset back to global index
+        const additionals = current.map((it, i) => ({ it, i })).filter(x => (x.it.slot || "_legacy") === ADDITIONAL_SLOT);
+        const target = additionals[idx];
+        if (!target) return;
+        const next = current.filter((_, i) => i !== target.i);
+        await persistItems(next);
+        logSessionEvent("upload_removed", { slot: ADDITIONAL_SLOT, label: target.it.label });
+        renderUpload();
+      };
+    });
+
+    // ---- wire additional (label-first gate) ----
+    const addLabel = document.getElementById("add-label");
+    const addDesc = document.getElementById("add-desc");
+    const addFile = document.getElementById("add-file");
+    const addBtn  = document.getElementById("add-upload-label");
+    const updateGate = () => {
+      const has = (addLabel.value || "").trim().length >= 2;
+      addFile.disabled = !has;
+      addBtn.classList.toggle("disabled", !has);
+    };
+    addLabel.addEventListener("input", updateGate);
+    updateGate();
+    addFile.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const label = (addLabel.value || "").trim();
+      const description = (addDesc.value || "").trim();
+      if (label.length < 2) {
+        document.getElementById("msg-additional").innerHTML = `<div class="alert alert-bad">Please add a document label first.</div>`;
+        e.target.value = "";
         return;
       }
-      const newItem = { name: file.name, size: file.size, path, type: file.type, uploaded_at: new Date().toISOString() };
-      const merged = [...(state.application.uploaded_documents || []), newItem];
-      const { data } = await sb.from("beta_applications")
-        .update({ uploaded_documents: merged })
-        .eq("id", state.application.id).select().single();
-      if (data) state.application = data;
-      refreshList(merged);
-      $("#upload-msg").innerHTML = `<div class="alert alert-ok">Uploaded ✓</div>`;
-      logSessionEvent("upload_succeeded", { path });
-      $("#file-input").value = "";
+      const msgEl = document.getElementById("msg-additional");
+      const ok = await doUpload(file, { slot: ADDITIONAL_SLOT, label, description }, msgEl);
+      if (ok) renderUpload();
+      else e.target.value = "";
     };
 
     $("#btn-back").onclick = () => goStep(4);

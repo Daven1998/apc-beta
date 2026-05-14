@@ -10,7 +10,7 @@ window.APC_CONFIG = {
     "hello@algarvepropertycompliance.com",
     "lucy@lockerspace.co.uk"
   ],
-  BETA_BUILD: "v0.3.4-beta",
+  BETA_BUILD: "v0.4.0-beta",
   // Where the magic-link email returns users
   REDIRECT_URL: window.location.origin + window.location.pathname
 };

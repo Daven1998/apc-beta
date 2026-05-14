@@ -339,3 +339,159 @@ textarea { min-height: 120px; resize: vertical; }
   body { font-size: 17px; }
   .card { padding: 28px 28px; }
 }
+
+/* ===== Step 5 — Document Upload (v0.4.0) ===== */
+.doc-section-title {
+  margin: 22px 0 8px;
+  font-size: 17px;
+  color: var(--apc-green);
+  border-bottom: 1px solid var(--apc-border);
+  padding-bottom: 6px;
+}
+.doc-section-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 720px) {
+  .doc-section-grid { grid-template-columns: 1fr 1fr; }
+}
+.doc-card {
+  background: #fff;
+  border: 1px solid var(--apc-border);
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color .15s, background .15s;
+}
+.doc-card-done {
+  background: #f0f8f3;
+  border-color: #b9dec3;
+}
+.doc-card-additional {
+  margin-top: 8px;
+  background: #fafaf6;
+}
+.doc-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.doc-card-title {
+  font-weight: 600;
+  font-size: 15.5px;
+  color: #1a2a23;
+}
+.doc-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  letter-spacing: .4px;
+  white-space: nowrap;
+}
+.doc-badge-optional {
+  background: #eef0ed;
+  color: #5d6b63;
+  border: 1px solid #d6dad4;
+}
+.doc-badge-required {
+  background: #fde7ea;
+  color: var(--apc-bad);
+  border: 1px solid #f5b7c0;
+}
+.doc-card-helper {
+  font-size: 14px;
+  color: #3a463f;
+  margin-bottom: 4px;
+}
+.doc-card-types {
+  font-size: 12.5px;
+  margin-bottom: 10px;
+}
+.doc-upload-btn {
+  display: inline-block;
+  cursor: pointer;
+  width: auto;
+  padding: 10px 18px;
+  font-size: 15px;
+}
+.doc-upload-btn.disabled {
+  opacity: .45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+.doc-file-input {
+  display: none;
+}
+.doc-card-msg { margin-top: 10px; }
+.doc-card-msg .alert { margin: 0; }
+.doc-uploaded-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+  color: var(--apc-ok);
+}
+.doc-tick { font-size: 17px; }
+.doc-filename {
+  color: #1a2a23;
+  font-weight: 500;
+  word-break: break-all;
+}
+.doc-uploaded-meta { font-size: 12.5px; margin-top: 2px; }
+.doc-actions { display: flex; gap: 8px; margin-top: 8px; }
+.btn-sm { padding: 6px 12px; font-size: 13.5px; }
+.btn-link {
+  background: transparent;
+  color: var(--apc-bad);
+  border: none;
+  text-decoration: underline;
+  padding: 6px 8px;
+}
+.doc-why {
+  background: #f5f7f4;
+  border: 1px solid var(--apc-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 12px 0 8px;
+}
+.doc-why summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--apc-green);
+}
+.doc-why p { margin: 8px 0 0; font-size: 14px; }
+.doc-card-additional input[type=text] {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 15px;
+  border: 1px solid var(--apc-border);
+  border-radius: 8px;
+  margin: 4px 0 10px;
+  box-sizing: border-box;
+}
+.doc-card-additional label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-top: 6px;
+  color: #2a3a32;
+}
+.doc-card-additional label.btn { font-weight: 500; }
+.doc-card-additional .req { color: var(--apc-bad); }
+.doc-additional-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+.doc-additional-item {
+  background: #f0f8f3;
+  border: 1px solid #b9dec3;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.doc-additional-head { display: flex; gap: 6px; align-items: center; margin-bottom: 2px; }
