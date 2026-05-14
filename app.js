@@ -632,14 +632,29 @@
 
   // STEP 5 — Document Status Workflow (v0.4.2)
   // Each slot has 3 possible states: uploaded | pending | missing
+  // v0.4.3 — Full DL 76/2024 + Welcome Pack compliance doc set
   const DOC_SLOTS = [
-    { section: "Identity & Ownership", slot: "passport_id",        title: "Passport / Government ID",     helper: "Photo or scan of passport or government-issued ID." },
-    { section: "Identity & Ownership", slot: "property_ownership", title: "Proof of Property Ownership",  helper: "Land registry, deed, escritura or ownership document." },
-    { section: "Property Compliance",  slot: "al_licence",         title: "Existing AL Licence",          helper: "Your current Alojamento Local licence document." },
-    { section: "Property Compliance",  slot: "insurance",          title: "Property Insurance",           helper: "Public liability or property insurance documentation." },
-    { section: "Property Compliance",  slot: "fire_safety",        title: "Fire Safety Documentation",    helper: "Fire safety certificates, assessments or inspection records." },
-    { section: "Property Compliance",  slot: "floor_plan",         title: "Floor Plan / Property Layout", helper: "Floor plan or property layout document." },
-    { section: "Property Compliance",  slot: "utility_tax",        title: "Utility / Tax Documentation",  helper: "Utility bill, council tax or property tax documentation." },
+    // ── Identity & Fiscal ──
+    { section: "Identity & Fiscal",          slot: "passport_id",          title: "Passport / Government ID",            helper: "Photo or scan of passport or government-issued ID." },
+    { section: "Identity & Fiscal",          slot: "nif",                  title: "NIF — Portuguese Fiscal Number",      helper: "Cartão de Contribuinte or Finanças NIF document." },
+    { section: "Identity & Fiscal",          slot: "iban_bank",            title: "IBAN / Bank Proof",                   helper: "Bank statement or IBAN confirmation for tourist tax remittance and fees." },
+    { section: "Identity & Fiscal",          slot: "fiscal_rep",           title: "Fiscal Representative Appointment",   helper: "Required if owner is non-EU resident. Mark 'don't have it' if EU resident." },
+
+    // ── Property & Title ──
+    { section: "Property & Title",            slot: "property_ownership",   title: "Property Ownership Deed (Escritura)", helper: "Escritura, land registry extract (Certidão Predial) or ownership deed." },
+    { section: "Property & Title",            slot: "caderneta_predial",    title: "Caderneta Predial Urbana",            helper: "Tax record extract from Finanças (separate from the deed)." },
+    { section: "Property & Title",            slot: "licenca_utilizacao",   title: "Licença de Utilização",               helper: "Use Licence issued by the local Câmara Municipal." },
+    { section: "Property & Title",            slot: "floor_plan",           title: "Floor Plan / Property Layout",        helper: "Approved floor plan or architectural layout document." },
+
+    // ── AL Operations & Safety ──
+    { section: "AL Operations & Safety",      slot: "al_licence",           title: "Existing AL Licence (RNAL)",          helper: "Your current Alojamento Local licence / RNAL registration." },
+    { section: "AL Operations & Safety",      slot: "inicio_atividade",     title: "Início de Atividade (CAE 55204)",     helper: "Finanças business-start declaration for AL activity." },
+    { section: "AL Operations & Safety",      slot: "energy_certificate",   title: "Energy Certificate (DGEG)",           helper: "Certificado Energético — required for AL listings." },
+    { section: "AL Operations & Safety",      slot: "gas_safety",           title: "Gas Safety Certificate",              helper: "Certificado de Inspeção de Gás. Mark 'don't have it' if property has no gas supply." },
+    { section: "AL Operations & Safety",      slot: "electrical_safety",    title: "Electrical Safety Certificate",       helper: "Certificado de Instalação Elétrica (CIE)." },
+    { section: "AL Operations & Safety",      slot: "fire_safety",          title: "Fire Safety Documentation",           helper: "Extinguisher, smoke detector, and fire safety inspection records." },
+    { section: "AL Operations & Safety",      slot: "insurance",            title: "Property & Public Liability Insurance", helper: "Public liability and property insurance covering AL activity." },
+    { section: "AL Operations & Safety",      slot: "livro_reclamacoes",    title: "Livro de Reclamações Registration",   helper: "Complaints Book registration (physical or electronic)." },
   ];
   const ADDITIONAL_SLOT = "additional";
 

@@ -75,11 +75,11 @@
 
 <footer class="apc-footer">
   <div>APC admin · Beta build · Test data only</div>
-  <div class="apc-build">Beta Build v0.4.2</div>
+  <div class="apc-build">Beta Build v0.4.3</div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="./config.js?v=0.4.2"></script>
+<script src="./config.js?v=0.4.3"></script>
 <script>
 (function () {
   const sb = window.supabaseClient;
@@ -352,15 +352,24 @@
     });
   }
 
-  // Document slot definitions (mirror app.js)
+  // Document slot definitions (mirror app.js v0.4.3)
   const DOC_SLOTS_ADMIN = [
-    { slot: "passport_id",        title: "Passport / Government ID" },
-    { slot: "property_ownership", title: "Proof of Property Ownership" },
-    { slot: "al_licence",         title: "Existing AL Licence" },
-    { slot: "insurance",          title: "Property Insurance" },
-    { slot: "fire_safety",        title: "Fire Safety Documentation" },
-    { slot: "floor_plan",         title: "Floor Plan / Property Layout" },
-    { slot: "utility_tax",        title: "Utility / Tax Documentation" }
+    { slot: "passport_id",          title: "Passport / Government ID" },
+    { slot: "nif",                  title: "NIF — Portuguese Fiscal Number" },
+    { slot: "iban_bank",            title: "IBAN / Bank Proof" },
+    { slot: "fiscal_rep",           title: "Fiscal Representative Appointment" },
+    { slot: "property_ownership",   title: "Property Ownership Deed (Escritura)" },
+    { slot: "caderneta_predial",    title: "Caderneta Predial Urbana" },
+    { slot: "licenca_utilizacao",   title: "Licença de Utilização" },
+    { slot: "floor_plan",           title: "Floor Plan / Property Layout" },
+    { slot: "al_licence",           title: "Existing AL Licence (RNAL)" },
+    { slot: "inicio_atividade",     title: "Início de Atividade (CAE 55204)" },
+    { slot: "energy_certificate",   title: "Energy Certificate (DGEG)" },
+    { slot: "gas_safety",           title: "Gas Safety Certificate" },
+    { slot: "electrical_safety",    title: "Electrical Safety Certificate" },
+    { slot: "fire_safety",          title: "Fire Safety Documentation" },
+    { slot: "insurance",            title: "Property & Public Liability Insurance" },
+    { slot: "livro_reclamacoes",    title: "Livro de Reclamações Registration" }
   ];
 
   // ---------- v0.4.1 — Compliance routing card ----------
