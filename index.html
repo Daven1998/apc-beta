@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>APC Beta — Algarve Property Compliance</title>
+<meta name="description" content="APC Beta test mode — onboarding flow for the Algarve Property Compliance application service." />
+<meta name="theme-color" content="#0f3d2e" />
+<link rel="icon" type="image/png" sizes="32x32" href="https://daven1998.github.io/apc-preview/img/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="https://daven1998.github.io/apc-preview/img/favicon-16.png" />
+<link rel="apple-touch-icon" href="https://daven1998.github.io/apc-preview/img/apple-touch-icon.png" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+<!-- BETA banner — fixed top, visible on every screen -->
+<div class="beta-banner" role="banner" aria-label="Beta test mode">
+  <strong>BETA TEST MODE</strong> — NOT A REAL COMPLIANCE APPLICATION
+</div>
+
+<header class="apc-header">
+  <a href="./" class="apc-brand" aria-label="APC home">
+    <img src="https://daven1998.github.io/apc-preview/img/apc-logo.png" alt="APC" class="apc-logo" />
+    <span class="apc-brand-text">APC <span class="apc-brand-sub">Algarve Property Compliance</span></span>
+  </a>
+  <div class="apc-header-right" id="header-right"></div>
+</header>
+
+<main class="apc-main" id="apc-main">
+  <!-- Step views injected by app.js -->
+  <div class="loading" id="loading-screen">Loading…</div>
+</main>
+
+<footer class="apc-footer">
+  <div>APC — Algarve Property Compliance · Beta build · Test data only</div>
+  <div class="apc-footer-note">No real filings, no real payments, no real government submissions.</div>
+  <div class="apc-build">Beta Build v0.3.1</div>
+</footer>
+
+<!-- Supabase JS v2 from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="./config.js"></script>
+<script src="./tracking.js"></script>
+<script src="./fake-data.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

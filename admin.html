@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>APC Beta · Admin</title>
+<meta name="theme-color" content="#0f3d2e" />
+<link rel="icon" type="image/png" sizes="32x32" href="https://daven1998.github.io/apc-preview/img/favicon-32.png" />
+<link rel="stylesheet" href="./style.css" />
+<style>
+  .admin-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin: 14px 0 18px;
+  }
+  .stat {
+    background: var(--apc-card);
+    border: 1px solid var(--apc-border);
+    border-radius: 12px;
+    padding: 14px;
+    text-align: center;
+  }
+  .stat-val { font-size: 28px; font-weight: 800; color: var(--apc-green); }
+  .stat-lbl { font-size: 13px; color: var(--apc-muted); margin-top: 4px; }
+
+  table.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  table.admin-table th, table.admin-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--apc-border);
+    text-align: left;
+    vertical-align: top;
+  }
+  table.admin-table th { background: #f1f0e9; color: var(--apc-green); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+  table.admin-table tr:last-child td { border-bottom: none; }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .pill-progress { background: #fff4e0; color: #c77700; }
+  .pill-completed { background: #e6f4ea; color: #2e7d32; }
+  .pill-started { background: #e8f1ee; color: var(--apc-green); }
+  .scroll-x { overflow-x: auto; }
+  .funnel { display: flex; gap: 6px; margin: 14px 0; align-items: flex-end; height: 140px; }
+  .funnel .bar { flex: 1; background: var(--apc-green-2); border-radius: 8px 8px 0 0; position: relative; min-height: 4px; }
+  .funnel .bar span { position: absolute; top: -22px; left: 0; right: 0; text-align: center; font-size: 13px; font-weight: 600; }
+  .funnel .bar small { position: absolute; bottom: -22px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--apc-muted); }
+</style>
+</head>
+<body>
+
+<div class="beta-banner"><strong>BETA TEST MODE</strong> — Admin dashboard · APC team only</div>
+
+<header class="apc-header">
+  <a href="./" class="apc-brand">
+    <img src="https://daven1998.github.io/apc-preview/img/apc-logo.png" alt="APC" class="apc-logo" />
+    <span class="apc-brand-text">APC <span class="apc-brand-sub">Beta admin</span></span>
+  </a>
+  <div class="apc-header-right" id="header-right"></div>
+</header>
+
+<main class="apc-main" id="apc-main" style="max-width:1100px">
+  <div class="loading" id="loading-screen">Loading…</div>
+</main>
+
+<footer class="apc-footer">
+  <div>APC admin · Beta build · Test data only</div>
+  <div class="apc-build">Beta Build v0.3.1</div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="./config.js"></script>
+<script>
+(function () {
+  const sb = window.supabaseClient;
+  const cfg = window.APC_CONFIG;
+  const STEPS = ["Welcome","Confirm area","Your property","Compliance check","Documents","Summary","Feedback","Complete"];
+  const $ = (s) => document.querySelector(s);
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+  async function gateAndLoad() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return showSignIn();
+    if (!cfg.ADMIN_EMAILS.includes(session.user.email)) return showDenied(session.user.email);
+    $("#header-right").innerHTML = `<span style="margin-right:10px">${esc(session.user.email)}</span><button class="logout" id="btn-logout">Sign out</button>`;
+    $("#btn-logout").onclick = async () => { await sb.auth.signOut(); window.location.reload(); };
+    await loadDashboard();
+  }
+
+  function showSignIn() {
+    $("#apc-main").innerHTML = `
+      <div class="card">
+        <h1>Admin sign-in</h1>
+        <p class="muted">Enter your APC admin email. You'll get a one-time sign-in link.</p>
+        <label>Email</label>
+        <input type="email" id="email" placeholder="you@algarvepropertycompliance.com" />
+        <button class="btn btn-primary" id="btn-send">Send magic link</button>
+        <div id="msg"></div>
+      </div>`;
+    $("#btn-send").onclick = async () => {
+      const email = $("#email").value.trim().toLowerCase();
+      if (!cfg.ADMIN_EMAILS.includes(email)) {
+        $("#msg").innerHTML = `<div class="alert alert-bad">That email isn't on the admin list.</div>`; return;
+      }
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: cfg.REDIRECT_URL } });
+      if (error) { $("#msg").innerHTML = `<div class="alert alert-bad">${esc(error.message)}</div>`; return; }
+      $("#msg").innerHTML = `<div class="alert alert-ok">Sign-in link sent to ${esc(email)}. Open it on this device.</div>`;
+    };
+  }
+  function showDenied(email) {
+    $("#apc-main").innerHTML = `
+      <div class="card">
+        <h1>Not an admin account</h1>
+        <p>You're signed in as <strong>${esc(email)}</strong>, which isn't on the APC admin list.</p>
+        <button class="btn btn-secondary" id="btn-out">Sign out</button>
+      </div>`;
+    $("#btn-out").onclick = async () => { await sb.auth.signOut(); window.location.reload(); };
+  }
+
+  // ---------- CSV helpers ----------
+  function toCSV(rows, columns) {
+    if (!rows.length) return columns.join(",") + "\n";
+    const header = columns.join(",");
+    const body = rows.map(r => columns.map(c => {
+      let v = r[c];
+      if (v == null) return "";
+      if (typeof v === "object") v = JSON.stringify(v);
+      v = String(v).replace(/"/g, '""');
+      if (/[",\n]/.test(v)) v = `"${v}"`;
+      return v;
+    }).join(",")).join("\n");
+    return header + "\n" + body + "\n";
+  }
+  function downloadCSV(filename, csv) {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+  }
+  function todayStr() {
+    const d = new Date();
+    return d.toISOString().slice(0,10);
+  }
+
+  async function loadDashboard() {
+    const [overviewQ, fbkQ, sessQ, appsQ, testersQ] = await Promise.all([
+      sb.from("v_admin_overview").select("*").order("created_at", { ascending: false }),
+      sb.from("beta_feedback").select("*").order("submitted_at", { ascending: false }),
+      sb.from("session_tracking").select("current_step, event_type, time_on_step_ms, tester_id, extra, device_info"),
+      sb.from("beta_applications").select("*"),
+      sb.from("testers").select("*")
+    ]);
+    if (overviewQ.error) { console.error(overviewQ.error); }
+    const overview = overviewQ.data || [];
+    const feedback = fbkQ.data || [];
+    const sessions = sessQ.data || [];
+    const apps = appsQ.data || [];
+    const testers = testersQ.data || [];
+    const testerById = Object.fromEntries(testers.map(t => [t.id, t]));
+
+    // Friction stats
+    const totalBacks   = sessions.reduce((s, x) => s + ((x.extra && x.extra.back_clicks) || 0), 0);
+    const totalRetries = sessions.reduce((s, x) => s + ((x.extra && x.extra.upload_retries) || 0), 0);
+    const totalFailures = sessions.reduce((s, x) => s + ((x.extra && x.extra.upload_failures) || 0), 0);
+    const totalRageClicks = sessions.reduce((s, x) => s + ((x.extra && x.extra.rage_clicks) || 0), 0);
+    const abandoned = sessions.filter(x => x.event_type === "application_abandoned").length;
+
+    // Device split
+    const devCounts = { ios_safari: 0, other: 0 };
+    testers.forEach(t => {
+      if (t.device_info && t.device_info.is_ios_safari) devCounts.ios_safari++;
+      else devCounts.other++;
+    });
+
+    // KPIs
+    const totalTesters = overview.length;
+    const completed = overview.filter(r => r.onboarding_status === "completed" || (r.completion_percent||0) >= 100).length;
+    const inProgress = totalTesters - completed;
+    const avgClarity = avg(feedback.map(f => f.clarity_score));
+    const avgEase    = avg(feedback.map(f => f.ease_score));
+    const avgTrust   = avg(feedback.map(f => f.trust_score));
+    const avgTimeSec = avg(sessions.filter(s => s.time_on_step_ms).map(s => s.time_on_step_ms/1000));
+
+    // Funnel: how many testers reached step N (based on last_step_completed)
+    const funnel = STEPS.map((name, i) => {
+      const step = i + 1;
+      const count = overview.filter(r => (r.last_step_completed||0) >= step - 1).length;
+      return { step, name, count };
+    });
+    const funnelMax = Math.max(1, ...funnel.map(f => f.count));
+
+    $("#apc-main").innerHTML = `
+      <div class="card">
+        <h2>Beta overview</h2>
+        <div class="admin-stats">
+          <div class="stat"><div class="stat-val">${totalTesters}</div><div class="stat-lbl">Testers</div></div>
+          <div class="stat"><div class="stat-val">${completed}</div><div class="stat-lbl">Completed flow</div></div>
+          <div class="stat"><div class="stat-val">${inProgress}</div><div class="stat-lbl">In progress</div></div>
+          <div class="stat"><div class="stat-val">${fmt(avgClarity)}</div><div class="stat-lbl">Avg clarity /5</div></div>
+          <div class="stat"><div class="stat-val">${fmt(avgEase)}</div><div class="stat-lbl">Avg ease /5</div></div>
+          <div class="stat"><div class="stat-val">${fmt(avgTrust)}</div><div class="stat-lbl">Avg trust /5</div></div>
+          <div class="stat"><div class="stat-val">${fmt(avgTimeSec,0)}s</div><div class="stat-lbl">Avg time / step</div></div>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-secondary" id="csv-testers">Export testers CSV</button>
+          <button class="btn btn-secondary" id="csv-apps">Export applications CSV</button>
+          <button class="btn btn-secondary" id="csv-feedback">Export feedback CSV</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Friction signals</h2>
+        <div class="admin-stats">
+          <div class="stat"><div class="stat-val">${totalBacks}</div><div class="stat-lbl">Back clicks</div></div>
+          <div class="stat"><div class="stat-val">${totalRetries}</div><div class="stat-lbl">Upload retries</div></div>
+          <div class="stat"><div class="stat-val">${totalFailures}</div><div class="stat-lbl">Upload failures</div></div>
+          <div class="stat"><div class="stat-val">${totalRageClicks}</div><div class="stat-lbl">Rage clicks</div></div>
+          <div class="stat"><div class="stat-val">${abandoned}</div><div class="stat-lbl">Abandoned sessions</div></div>
+          <div class="stat"><div class="stat-val">${devCounts.ios_safari}/${devCounts.ios_safari + devCounts.other}</div><div class="stat-lbl">iOS Safari users</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Step funnel</h2>
+        <p class="muted">How many testers reached each step.</p>
+        <div class="funnel" style="margin-top:30px;margin-bottom:30px">
+          ${funnel.map(f => `
+            <div class="bar" style="height:${Math.round((f.count/funnelMax)*100)}%">
+              <span>${f.count}</span>
+              <small>${f.step}. ${esc(f.name)}</small>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Testers</h2>
+        <div class="scroll-x">
+          <table class="admin-table">
+            <thead><tr>
+              <th>Name</th><th>Email</th><th>Area</th><th>Status</th>
+              <th>Progress</th><th>Last step</th>
+              <th>Property</th><th>Device</th><th>Joined</th><th>Admin notes</th>
+            </tr></thead>
+            <tbody>
+              ${overview.map(r => {
+                const tester = testerById[r.tester_id] || {};
+                const di = tester.device_info || {};
+                const devLbl = di.is_ios_safari ? "iOS Safari" : (di.platform || "—");
+                return `
+                <tr>
+                  <td>${esc(r.full_name)}</td>
+                  <td>${esc(r.email)}</td>
+                  <td>${esc(r.algarve_area || "—")}</td>
+                  <td>${statusPill(r)}</td>
+                  <td>${r.completion_percent || 0}%</td>
+                  <td>${(r.last_step_completed || 0)} of ${STEPS.length-1}</td>
+                  <td>${esc(r.generated_property_town || "—")} · ${esc(r.generated_property_type || "")}</td>
+                  <td title="${esc(di.ua||"")}">${esc(devLbl)}</td>
+                  <td>${fmtDate(r.created_at)}</td>
+                  <td>
+                    <textarea data-tester="${r.tester_id}" class="admin-note" rows="2"
+                      style="width:160px;min-height:50px;font-size:13px;padding:6px"
+                      placeholder="Notes…">${esc(tester.admin_notes||"")}</textarea>
+                  </td>
+                </tr>`;
+              }).join("") || `<tr><td colspan="10" style="text-align:center;color:var(--apc-muted);padding:18px">No testers yet</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Feedback (${feedback.length})</h2>
+        <div class="scroll-x">
+          <table class="admin-table">
+            <thead><tr>
+              <th>When</th><th>Clarity</th><th>Ease</th><th>Trust</th>
+              <th>What confused them</th><th>What would help</th><th>Would pay?</th>
+            </tr></thead>
+            <tbody>
+              ${feedback.map(f => `
+                <tr>
+                  <td>${fmtDate(f.submitted_at)}</td>
+                  <td>${f.clarity_score ?? "—"}</td>
+                  <td>${f.ease_score ?? "—"}</td>
+                  <td>${f.trust_score ?? "—"}</td>
+                  <td>${esc(f.confusion_notes || "")}</td>
+                  <td>${esc(f.improvement_text || "")}</td>
+                  <td>${esc(f.would_pay_text || "")}</td>
+                </tr>
+              `).join("") || `<tr><td colspan="7" style="text-align:center;color:var(--apc-muted);padding:18px">No feedback yet</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // CSV export wiring
+    $("#csv-testers").onclick = () => downloadCSV(
+      `apc-beta-testers-${todayStr()}.csv`,
+      toCSV(testers, ["id","email","full_name","algarve_area","onboarding_status","completion_percent","last_step_completed","feedback_score","admin_notes","device_info","last_seen_at","created_at"])
+    );
+    $("#csv-apps").onclick = () => downloadCSV(
+      `apc-beta-applications-${todayStr()}.csv`,
+      toCSV(apps, ["id","tester_id","status","application_progress","generated_property_town","generated_property_type","generated_bedrooms","generated_capacity","generated_risk_score","final_compliance_score","final_compliance_band","compliance_answers","uploaded_documents","feedback_data","created_at","completed_at"])
+    );
+    $("#csv-feedback").onclick = () => downloadCSV(
+      `apc-beta-feedback-${todayStr()}.csv`,
+      toCSV(feedback, ["id","tester_id","application_id","clarity_score","ease_score","trust_score","confusion_notes","improvement_text","would_pay_text","bugs_found","submitted_at"])
+    );
+
+    // Admin-notes inline save on blur (debounced per textarea)
+    document.querySelectorAll("textarea.admin-note").forEach(ta => {
+      let timer = null;
+      ta.addEventListener("input", () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const id = ta.dataset.tester;
+          await sb.from("testers").update({ admin_notes: ta.value }).eq("id", id);
+          ta.style.borderColor = "#2e7d32";
+          setTimeout(() => ta.style.borderColor = "", 600);
+        }, 800);
+      });
+    });
+  }
+
+  function statusPill(r) {
+    if ((r.completion_percent||0) >= 100 || r.onboarding_status === "completed")
+      return `<span class="pill pill-completed">Completed</span>`;
+    if ((r.last_step_completed||0) > 0)
+      return `<span class="pill pill-progress">In progress</span>`;
+    return `<span class="pill pill-started">Started</span>`;
+  }
+  function avg(arr){ const xs = arr.filter(v => v != null && !isNaN(v)); if (!xs.length) return null; return xs.reduce((a,b)=>a+Number(b),0)/xs.length; }
+  function fmt(v, d=1){ return v == null ? "—" : Number(v).toFixed(d); }
+  function fmtDate(s){ if (!s) return "—"; const d = new Date(s); return d.toLocaleString("en-GB", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }); }
+
+  sb.auth.onAuthStateChange((_e, sess) => { if (sess) gateAndLoad(); });
+  gateAndLoad();
+})();
+</script>
+</body>
+</html>
