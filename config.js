@@ -18,7 +18,10 @@ window.APC_CONFIG = {
     // Whitelist of emails who see the multi-property choice + dashboard.
     // Empty array = feature disabled for everyone. Add emails to roll out.
     multi_property_emails: [
-      "dave@algarvepropertycompliance.com"
+      "dave@algarvepropertycompliance.com",
+      "joe@algarvepropertycompliance.com",
+      "liam@algarvepropertycompliance.com",
+      "lucy@lockerspace.co.uk"
     ]
   }
 };
