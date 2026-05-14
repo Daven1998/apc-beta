@@ -228,8 +228,11 @@
     let pendingName = "";
     try { pendingName = localStorage.getItem("apc_pending_name") || ""; } catch (e) {}
 
-    let { data: existing } = await sb
+    const { data: existing, error: e1 } = await sb
       .from("testers").select("*").eq("auth_user_id", state.user.id).maybeSingle();
+    if (e1) {
+      throw new Error("testers SELECT failed: " + (e1.message || JSON.stringify(e1)));
+    }
 
     if (existing) {
       state.tester = existing;
@@ -242,7 +245,9 @@
         completion_percent: 0,
         last_step_completed: 0
       }).select().single();
-      if (e2) { console.error(e2); return null; }
+      if (e2) {
+        throw new Error("testers INSERT failed: " + (e2.message || JSON.stringify(e2)));
+      }
       state.tester = ins;
     }
     try { localStorage.removeItem("apc_pending_name"); } catch (e) {}
@@ -251,21 +256,26 @@
 
   async function loadOrCreateApplication() {
     if (!state.tester) return null;
-    let { data: apps } = await sb
+    const { data: apps, error: e1 } = await sb
       .from("beta_applications")
       .select("*")
       .eq("tester_id", state.tester.id)
       .order("created_at", { ascending: false })
       .limit(1);
+    if (e1) {
+      throw new Error("beta_applications SELECT failed: " + (e1.message || JSON.stringify(e1)));
+    }
     if (apps && apps.length) {
       state.application = apps[0];
     } else {
-      const { data: ins, error } = await sb.from("beta_applications").insert({
+      const { data: ins, error: e2 } = await sb.from("beta_applications").insert({
         tester_id: state.tester.id,
         status: "in_progress",
         application_progress: 0
       }).select().single();
-      if (error) { console.error(error); return null; }
+      if (e2) {
+        throw new Error("beta_applications INSERT failed: " + (e2.message || JSON.stringify(e2)));
+      }
       state.application = ins;
     }
     return state.application;
@@ -749,45 +759,78 @@
   }
 
   // ---------- Boot ----------
-  // Safety net: if anything below throws or hangs, fall back to the sign-in screen
-  // so users never get stuck on "Loading…". Common cause: Safari blocking storage
-  // or the auth coordination channel hanging.
+  // If session is missing or boot hangs, fall back to sign-in.
+  // If session exists but something later breaks, show an error — do NOT
+  // bounce back to sign-in (that creates the infinite magic-link loop).
   function safeFallbackToSignIn(reason) {
-    try { console.warn("APC boot fallback:", reason); } catch (e) {}
+    try { console.warn("APC boot fallback (no session):", reason); } catch (e) {}
     try { renderHeader(); } catch (e) {}
     try { renderSignIn(); } catch (e) {
-      // Last-resort: at least clear the loading screen with a helpful message
       const m = document.getElementById("apc-main");
-      if (m) m.innerHTML = 
+      if (m) m.innerHTML =
         '<div class="card"><h1>Welcome to APC Beta</h1>' +
         '<p>Something didn\u2019t load on this device. Please try a hard refresh, ' +
         'or open this page in a different browser.</p></div>';
     }
   }
 
-  async function boot() {
-    try {
-      // 24h inactivity timeout
-      if (TRACK && TRACK.checkSessionTimeout(sb, () => window.location.reload())) return;
+  function showPostAuthError(err) {
+    try { console.error("APC post-auth error:", err); } catch (e) {}
+    try { renderHeader(); } catch (e) {}
+    const m = document.getElementById("apc-main");
+    const msg = (err && err.message) ? err.message : String(err);
+    if (m) m.innerHTML =
+      '<div class="card">' +
+        '<h1>You\u2019re signed in \u2014 but something went wrong loading your data</h1>' +
+        '<p class="muted">No need to request another sign-in link \u2014 you are signed in. ' +
+        'Please send the message below to dave@algarvepropertycompliance.com and we\u2019ll fix it.</p>' +
+        '<pre style="background:#f3f5f7;padding:12px;border-radius:8px;overflow:auto;font-size:13px;">' +
+          escapeHTML(msg) +
+        '</pre>' +
+        '<button class="btn btn-secondary" onclick="location.reload()">Try again</button> ' +
+        '<button class="btn" id="btn-force-signout">Sign out</button>' +
+      '</div>';
+    const so = document.getElementById("btn-force-signout");
+    if (so) so.onclick = () => sb.auth.signOut().then(() => location.reload());
+  }
 
-      // 4s safety timeout in case getSession() hangs (seen on some Safari versions)
+  async function boot() {
+    // 24h inactivity timeout (outside try — will sign user out cleanly)
+    if (TRACK && TRACK.checkSessionTimeout(sb, () => window.location.reload())) return;
+
+    // PHASE 1: get session. If this hangs or fails, fall back to sign-in.
+    let session = null;
+    try {
       const sessionPromise = sb.auth.getSession();
       const timeoutPromise = new Promise((resolve) =>
         setTimeout(() => resolve({ data: { session: null }, __timedOut: true }), 4000)
       );
       const result = await Promise.race([sessionPromise, timeoutPromise]);
-      const session = (result && result.data && result.data.session) || null;
+      session = (result && result.data && result.data.session) || null;
       if (result && result.__timedOut) {
         console.warn("APC boot: getSession() timed out, defaulting to sign-in");
       }
+    } catch (err) {
+      return safeFallbackToSignIn((err && err.message) || String(err));
+    }
 
-      if (!session) {
-        renderHeader();
-        return renderSignIn();
-      }
+    if (!session) {
+      renderHeader();
+      return renderSignIn();
+    }
+
+    // PHASE 2: we have a real session. Any failure from here is NOT an auth
+    // failure — show an explicit error so the user doesn\u2019t loop back to magic-link.
+    try {
       state.user = session.user;
-      await ensureTester();
-      await loadOrCreateApplication();
+      const tester = await ensureTester();
+      if (!tester) {
+        throw new Error("Could not create or load your tester profile (ensureTester returned null). Check Supabase logs and RLS/NOT-NULL constraints on the testers table.");
+      }
+      const app = await loadOrCreateApplication();
+      if (!app) {
+        throw new Error("Could not create or load your application (loadOrCreateApplication returned null). Check Supabase logs and constraints on beta_applications.");
+      }
 
     // Stamp tester with device info + last_seen
     if (state.tester) {
@@ -818,7 +861,6 @@
       logSessionEvent("session_start");
 
       // application_abandoned: log on visibility change while flow is open
-      // (drop-off is also inferable from missing later step_completed events)
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden" &&
             state.application && state.application.status !== "completed") {
@@ -826,7 +868,7 @@
         }
       });
     } catch (err) {
-      safeFallbackToSignIn((err && err.message) || String(err));
+      showPostAuthError(err);
     }
   }
 
