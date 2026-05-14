@@ -366,8 +366,25 @@
   }
 
   // STEP 3
+  // Capacity-band → compliance path classifier (Art. 13 DL128/2014, DL76/2024)
+  const CAPACITY_BANDS = [
+    { id: "1_4",     label: "1–4 guests",   sub: "Small villa or apartment",        path: "standard_AL", scie: false },
+    { id: "5_10",    label: "5–10 guests",  sub: "Mid-size property — most common", path: "standard_AL", scie: false },
+    { id: "11_plus", label: "11+ guests",   sub: "Larger property or hostel",       path: "SCIE_review", scie: true  }
+  ];
+  function bandForCapacity(cap) {
+    if (cap == null) return null;
+    if (cap <= 4)  return "1_4";
+    if (cap <= 10) return "5_10";
+    return "11_plus";
+  }
+
   function renderReviewProperty() {
     const p = appPropertyFromRow(state.application);
+    const app = state.application;
+    const selectedBand = app.guest_capacity_band || bandForCapacity(p.capacity);
+    const scie = (app.scie_details && typeof app.scie_details === "object") ? app.scie_details : {};
+
     main().innerHTML = `
       <div class="card">
         ${renderSteps(3)}
@@ -379,18 +396,125 @@
         <div class="prop-row"><div class="prop-key">Postcode</div><div class="prop-val">${escapeHTML(p.postcode)}</div></div>
         <div class="prop-row"><div class="prop-key">Property type</div><div class="prop-val">${escapeHTML(p.property_type)}</div></div>
         <div class="prop-row"><div class="prop-key">Bedrooms</div><div class="prop-val">${p.bedrooms}</div></div>
-        <div class="prop-row"><div class="prop-key">Max guests</div><div class="prop-val">${p.capacity}</div></div>
+        <div class="prop-row"><div class="prop-key">Max guests (suggested)</div><div class="prop-val">${p.capacity}</div></div>
         <div class="prop-row"><div class="prop-key">Year built</div><div class="prop-val">${p.year_built}</div></div>
         <div class="prop-row"><div class="prop-key">Owner NIF</div><div class="prop-val">${escapeHTML(p.nif)}</div></div>
         <div class="prop-row"><div class="prop-key">AL licence</div><div class="prop-val">${escapeHTML(p.al_licence)}</div></div>
+
+        <div class="cap-gate">
+          <h3 class="cap-gate-title">How many guests will the property accommodate?</h3>
+          <p class="muted cap-gate-help">This determines which compliance rules apply.</p>
+          <div class="cap-card-grid" id="cap-card-grid">
+            ${CAPACITY_BANDS.map(b => `
+              <button type="button"
+                      class="cap-card${selectedBand===b.id?" selected":""}${b.scie?" cap-card-scie":""}"
+                      data-band="${b.id}"
+                      aria-pressed="${selectedBand===b.id}">
+                <div class="cap-card-label">${b.label}</div>
+                <div class="cap-card-sub">${b.sub}</div>
+                ${b.scie ? '<div class="cap-card-badge">Enhanced review</div>' : ''}
+              </button>
+            `).join("")}
+          </div>
+
+          <div id="cap-helper-standard" class="cap-helper cap-helper-ok" style="display:${selectedBand && selectedBand!=="11_plus"?"block":"none"}">
+            <strong>Standard Alojamento Local path.</strong>
+            Under Article 13(2) of Decreto-Lei 128/2014, properties up to 10 guests need: 1× extinguisher, 1× fire blanket, first-aid kit, visible 112 emergency information.
+          </div>
+
+          <div id="cap-helper-scie" class="cap-helper cap-helper-scie" style="display:${selectedBand==="11_plus"?"block":"none"}">
+            <div class="cap-helper-title">Larger property — enhanced compliance review</div>
+            <p>Properties accommodating more than 10 guests may require enhanced fire safety compliance review under Portuguese SCIE regulations (DL 220/2008 + Portaria 1532/2008).</p>
+            <p class="muted">A few extra details below help us prepare the right review and supplier quotes.</p>
+          </div>
+
+          <div id="scie-fields" class="scie-fields" style="display:${selectedBand==="11_plus"?"block":"none"}">
+            <h4 class="scie-fields-title">Property details for SCIE review</h4>
+            <div class="scie-grid">
+              <label class="scie-field">Total floor area (m²)
+                <input type="number" min="0" id="scie-area" value="${scie.floor_area_sqm ?? ""}" placeholder="e.g. 220">
+              </label>
+              <label class="scie-field">Number of floors
+                <input type="number" min="1" id="scie-floors" value="${scie.floors ?? ""}" placeholder="e.g. 2">
+              </label>
+              <label class="scie-field">Existing extinguisher count
+                <input type="number" min="0" id="scie-extcount" value="${scie.existing_extinguisher_count ?? ""}" placeholder="e.g. 3">
+              </label>
+              <label class="scie-field">Existing fire alarm system
+                <select id="scie-alarm">
+                  <option value="">— Select —</option>
+                  <option value="yes"      ${scie.existing_alarm==="yes"?"selected":""}>Yes</option>
+                  <option value="partial"  ${scie.existing_alarm==="partial"?"selected":""}>Partial / unsure</option>
+                  <option value="no"       ${scie.existing_alarm==="no"?"selected":""}>No</option>
+                </select>
+              </label>
+              <label class="scie-field">Emergency lighting present
+                <select id="scie-lighting">
+                  <option value="">— Select —</option>
+                  <option value="yes" ${scie.emergency_lighting==="yes"?"selected":""}>Yes</option>
+                  <option value="no"  ${scie.emergency_lighting==="no"?"selected":""}>No</option>
+                </select>
+              </label>
+              <label class="scie-field">Existing evacuation plan
+                <select id="scie-evac">
+                  <option value="">— Select —</option>
+                  <option value="yes" ${scie.evacuation_plan==="yes"?"selected":""}>Yes</option>
+                  <option value="no"  ${scie.evacuation_plan==="no"?"selected":""}>No</option>
+                </select>
+              </label>
+              <label class="scie-field">Existing safety signage
+                <select id="scie-signage">
+                  <option value="">— Select —</option>
+                  <option value="yes"     ${scie.existing_signage==="yes"?"selected":""}>Yes</option>
+                  <option value="partial" ${scie.existing_signage==="partial"?"selected":""}>Partial</option>
+                  <option value="no"      ${scie.existing_signage==="no"?"selected":""}>No</option>
+                </select>
+              </label>
+              <label class="scie-field">Maintenance certificates in date
+                <select id="scie-certs">
+                  <option value="">— Select —</option>
+                  <option value="yes"     ${scie.maintenance_certs==="yes"?"selected":""}>Yes</option>
+                  <option value="expired" ${scie.maintenance_certs==="expired"?"selected":""}>Expired</option>
+                  <option value="no"      ${scie.maintenance_certs==="no"?"selected":""}>No / unsure</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
 
         <div class="btn-row">
           <button class="btn btn-secondary" id="btn-back">Back</button>
           <button class="btn btn-secondary" id="btn-regen">Generate a new one</button>
         </div>
-        <button class="btn btn-primary" id="btn-next">Looks good — continue</button>
+        <button class="btn btn-primary" id="btn-next" ${selectedBand?"":"disabled"}>Looks good — continue</button>
       </div>
     `;
+
+    let currentBand = selectedBand;
+
+    function applyBand(bandId) {
+      currentBand = bandId;
+      document.querySelectorAll("#cap-card-grid .cap-card").forEach(el => {
+        const on = el.getAttribute("data-band") === bandId;
+        el.classList.toggle("selected", on);
+        el.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      const isScie = bandId === "11_plus";
+      const hStd  = document.getElementById("cap-helper-standard");
+      const hScie = document.getElementById("cap-helper-scie");
+      const fScie = document.getElementById("scie-fields");
+      if (hStd)  hStd.style.display  = (bandId && !isScie) ? "block" : "none";
+      if (hScie) hScie.style.display = isScie ? "block" : "none";
+      if (fScie) fScie.style.display = isScie ? "block" : "none";
+      const next = document.getElementById("btn-next");
+      if (next) next.disabled = !bandId;
+      try { TRACK && TRACK.event && TRACK.event("capacity_band_selected", { band: bandId, scie: isScie }); } catch(_) {}
+    }
+
+    document.querySelectorAll("#cap-card-grid .cap-card").forEach(el => {
+      el.onclick = () => applyBand(el.getAttribute("data-band"));
+    });
+
     $("#btn-back").onclick = () => goStep(2);
     $("#btn-regen").onclick = async () => {
       const newProp = window.APC_FAKE.generate(state.tester.algarve_area);
@@ -400,7 +524,39 @@
       if (data) state.application = data;
       renderReviewProperty();
     };
-    $("#btn-next").onclick = () => goStep(4);
+    $("#btn-next").onclick = async () => {
+      if (!currentBand) { alert("Please choose a capacity band before continuing."); return; }
+      const bandDef = CAPACITY_BANDS.find(b => b.id === currentBand);
+      const scieDetails = currentBand === "11_plus" ? {
+        floor_area_sqm:               numOrNull($("#scie-area").value),
+        floors:                       numOrNull($("#scie-floors").value),
+        existing_extinguisher_count:  numOrNull($("#scie-extcount").value),
+        existing_alarm:               $("#scie-alarm").value || null,
+        emergency_lighting:           $("#scie-lighting").value || null,
+        evacuation_plan:              $("#scie-evac").value || null,
+        existing_signage:             $("#scie-signage").value || null,
+        maintenance_certs:            $("#scie-certs").value || null,
+        captured_at:                  new Date().toISOString()
+      } : {};
+      const update = {
+        guest_capacity_band:     currentBand,
+        compliance_path:         bandDef.path,
+        manual_review_required:  bandDef.scie,
+        scie_flag:               bandDef.scie,
+        scie_details:            scieDetails
+      };
+      const { data, error } = await sb.from("beta_applications")
+        .update(update).eq("id", state.application.id).select().single();
+      if (error) { alert("Could not save capacity classification: " + error.message); return; }
+      if (data) state.application = data;
+      goStep(4);
+    };
+  }
+
+  function numOrNull(v) {
+    if (v === "" || v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
   }
 
   // STEP 4

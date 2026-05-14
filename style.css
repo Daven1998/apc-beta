@@ -495,3 +495,114 @@ textarea { min-height: 120px; resize: vertical; }
   font-size: 14px;
 }
 .doc-additional-head { display: flex; gap: 6px; align-items: center; margin-bottom: 2px; }
+
+/* ---------- v0.4.1 — Capacity gate + SCIE routing ---------- */
+.cap-gate {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid #e3e7ee;
+}
+.cap-gate-title { margin: 0 0 4px 0; font-size: 19px; }
+.cap-gate-help  { margin: 0 0 14px 0; }
+
+.cap-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (min-width: 720px) {
+  .cap-card-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+}
+.cap-card {
+  text-align: left;
+  padding: 18px 16px;
+  border: 2px solid #d8dee8;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .05s ease;
+  min-height: 92px;
+  position: relative;
+  font: inherit;
+  color: inherit;
+}
+.cap-card:hover { border-color: #9aa6b8; }
+.cap-card:active { transform: scale(0.99); }
+.cap-card.selected {
+  border-color: #1d3a8a;
+  background: #f0f4ff;
+  box-shadow: 0 0 0 3px rgba(29, 58, 138, 0.12);
+}
+.cap-card-scie.selected {
+  border-color: #b45309;
+  background: #fff8ed;
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.14);
+}
+.cap-card-label { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+.cap-card-sub   { font-size: 13px; color: #5c6b82; line-height: 1.35; }
+.cap-card-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: #b45309;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+.cap-helper {
+  padding: 14px 16px;
+  border-radius: 10px;
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.cap-helper-ok   { background: #eef7f0; border-left: 4px solid #2f7d3a; color: #1b3b22; }
+.cap-helper-scie { background: #fff5e6; border-left: 4px solid #b45309; color: #4a2f08; }
+.cap-helper-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.cap-helper p { margin: 4px 0; }
+
+.scie-fields {
+  margin-top: 14px;
+  padding: 16px;
+  background: #fafbfd;
+  border: 1px solid #e3e7ee;
+  border-radius: 10px;
+}
+.scie-fields-title { margin: 0 0 12px 0; font-size: 15px; font-weight: 600; color: #2a3142; }
+.scie-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 720px) {
+  .scie-grid { grid-template-columns: 1fr 1fr; }
+}
+.scie-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #4a5468;
+}
+.scie-field input,
+.scie-field select {
+  padding: 9px 10px;
+  font-size: 15px;
+  border: 1px solid #c8d0dc;
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* Admin: SCIE / capacity column */
+.adm-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+.adm-badge-std  { background: #eef7f0; color: #1b3b22; border: 1px solid #c9e3cf; }
+.adm-badge-scie { background: #fff5e6; color: #4a2f08; border: 1px solid #f4d6a8; }
+.adm-badge-cap  { background: #eef0f5; color: #2a3142; border: 1px solid #d8dee8; }
+.adm-filter-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.adm-filter-row label { font-size: 13px; color: #4a5468; }
+.adm-filter-row select { padding: 6px 8px; font-size: 13px; border: 1px solid #c8d0dc; border-radius: 6px; }

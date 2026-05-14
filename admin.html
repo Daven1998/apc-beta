@@ -75,11 +75,11 @@
 
 <footer class="apc-footer">
   <div>APC admin · Beta build · Test data only</div>
-  <div class="apc-build">Beta Build v0.4.0</div>
+  <div class="apc-build">Beta Build v0.4.1</div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="./config.js"></script>
+<script src="./config.js?v=0.4.1"></script>
 <script>
 (function () {
   const sb = window.supabaseClient;
@@ -233,6 +233,11 @@
       </div>
 
       <div class="card">
+        <h2>Compliance routing</h2>
+        ${renderComplianceRoutingAdmin(apps, testers)}
+      </div>
+
+      <div class="card">
         <h2>Document uploads</h2>
         ${renderUploadAdmin(apps, testers)}
       </div>
@@ -320,7 +325,7 @@
     );
     $("#csv-apps").onclick = () => downloadCSV(
       `apc-beta-applications-${todayStr()}.csv`,
-      toCSV(apps, ["id","tester_id","status","application_progress","generated_property_town","generated_property_type","generated_bedrooms","generated_capacity","generated_risk_score","final_compliance_score","final_compliance_band","compliance_answers","uploaded_documents","feedback_data","created_at","completed_at"])
+      toCSV(apps, ["id","tester_id","status","application_progress","generated_property_town","generated_property_type","generated_bedrooms","generated_capacity","generated_risk_score","guest_capacity_band","compliance_path","manual_review_required","scie_flag","scie_details","final_compliance_score","final_compliance_band","compliance_answers","uploaded_documents","feedback_data","created_at","completed_at"])
     );
     $("#csv-feedback").onclick = () => downloadCSV(
       `apc-beta-feedback-${todayStr()}.csv`,
@@ -352,6 +357,82 @@
     { slot: "floor_plan",         title: "Floor Plan / Property Layout" },
     { slot: "utility_tax",        title: "Utility / Tax Documentation" }
   ];
+
+  // ---------- v0.4.1 — Compliance routing card ----------
+  function renderComplianceRoutingAdmin(apps, testers) {
+    const testerById = Object.fromEntries((testers||[]).map(t => [t.id, t]));
+    const total = apps.length;
+    const counts = { unset: 0, "1_4": 0, "5_10": 0, "11_plus": 0 };
+    const paths  = { standard_AL: 0, SCIE_review: 0, unset: 0 };
+    let manualReview = 0;
+    apps.forEach(a => {
+      const b = a.guest_capacity_band || "unset";
+      counts[b] = (counts[b]||0) + 1;
+      const p = a.compliance_path || "unset";
+      paths[p] = (paths[p]||0) + 1;
+      if (a.manual_review_required) manualReview++;
+    });
+    const stats = `
+      <div class="admin-stats">
+        <div class="stat"><div class="stat-val">${counts["1_4"]}</div><div class="stat-lbl">1–4 guests</div></div>
+        <div class="stat"><div class="stat-val">${counts["5_10"]}</div><div class="stat-lbl">5–10 guests</div></div>
+        <div class="stat"><div class="stat-val">${counts["11_plus"]}</div><div class="stat-lbl">11+ guests</div></div>
+        <div class="stat"><div class="stat-val">${counts.unset}</div><div class="stat-lbl">Not yet classified</div></div>
+        <div class="stat"><div class="stat-val">${paths.standard_AL}</div><div class="stat-lbl">Standard AL</div></div>
+        <div class="stat"><div class="stat-val">${paths.SCIE_review}</div><div class="stat-lbl">SCIE review</div></div>
+        <div class="stat"><div class="stat-val">${manualReview}</div><div class="stat-lbl">Manual review flag</div></div>
+      </div>`;
+    const rows = apps
+      .slice()
+      .sort((a,b) => (b.scie_flag?1:0) - (a.scie_flag?1:0))
+      .map(a => {
+        const t = testerById[a.tester_id] || {};
+        const band = a.guest_capacity_band || "—";
+        const bandLabel = ({"1_4":"1–4","5_10":"5–10","11_plus":"11+"})[band] || "—";
+        const pathLabel = a.compliance_path === "SCIE_review"
+          ? '<span class="adm-badge adm-badge-scie">SCIE review</span>'
+          : (a.compliance_path === "standard_AL"
+              ? '<span class="adm-badge adm-badge-std">Standard AL</span>'
+              : '<span class="adm-badge adm-badge-cap">Not set</span>');
+        const mr = a.manual_review_required ? '<span class="adm-badge adm-badge-scie">YES</span>' : '<span class="muted">no</span>';
+        const scieD = (a.scie_details && Object.keys(a.scie_details).length)
+          ? `${a.scie_details.floors||"?"} fl · ${a.scie_details.floor_area_sqm||"?"} m² · ${a.scie_details.existing_extinguisher_count??"?"} ext`
+          : '<span class="muted">—</span>';
+        return `<tr data-path="${a.compliance_path||"unset"}">
+          <td>${esc(t.full_name || t.email || a.tester_id.slice(0,8))}</td>
+          <td><span class="adm-badge adm-badge-cap">${bandLabel}</span></td>
+          <td>${pathLabel}</td>
+          <td>${mr}</td>
+          <td>${scieD}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--apc-muted);padding:14px">No applications yet</td></tr>`;
+    const filter = `
+      <div class="adm-filter-row">
+        <label>Filter:
+          <select id="adm-routing-filter">
+            <option value="all">All applications</option>
+            <option value="standard_AL">Standard AL only</option>
+            <option value="SCIE_review">SCIE review only</option>
+            <option value="unset">Not yet classified</option>
+          </select>
+        </label>
+      </div>`;
+    setTimeout(() => {
+      const sel = document.getElementById("adm-routing-filter");
+      if (sel) sel.onchange = () => {
+        const v = sel.value;
+        document.querySelectorAll("#adm-routing-table tbody tr[data-path]").forEach(tr => {
+          tr.style.display = (v === "all" || tr.getAttribute("data-path") === v) ? "" : "none";
+        });
+      };
+    }, 0);
+    return `${stats}
+      ${filter}
+      <table id="adm-routing-table" class="admin-table">
+        <thead><tr><th>Tester</th><th>Capacity</th><th>Path</th><th>Manual review</th><th>SCIE details</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
 
   function renderUploadAdmin(apps, testers) {
     const testerById = Object.fromEntries(testers.map(t => [t.id, t]));
