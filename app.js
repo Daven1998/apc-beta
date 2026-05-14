@@ -749,18 +749,45 @@
   }
 
   // ---------- Boot ----------
-  async function boot() {
-    // 24h inactivity timeout
-    if (TRACK && TRACK.checkSessionTimeout(sb, () => window.location.reload())) return;
-
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session) {
-      renderHeader();
-      return renderSignIn();
+  // Safety net: if anything below throws or hangs, fall back to the sign-in screen
+  // so users never get stuck on "Loading…". Common cause: Safari blocking storage
+  // or the auth coordination channel hanging.
+  function safeFallbackToSignIn(reason) {
+    try { console.warn("APC boot fallback:", reason); } catch (e) {}
+    try { renderHeader(); } catch (e) {}
+    try { renderSignIn(); } catch (e) {
+      // Last-resort: at least clear the loading screen with a helpful message
+      const m = document.getElementById("apc-main");
+      if (m) m.innerHTML = 
+        '<div class="card"><h1>Welcome to APC Beta</h1>' +
+        '<p>Something didn\u2019t load on this device. Please try a hard refresh, ' +
+        'or open this page in a different browser.</p></div>';
     }
-    state.user = session.user;
-    await ensureTester();
-    await loadOrCreateApplication();
+  }
+
+  async function boot() {
+    try {
+      // 24h inactivity timeout
+      if (TRACK && TRACK.checkSessionTimeout(sb, () => window.location.reload())) return;
+
+      // 4s safety timeout in case getSession() hangs (seen on some Safari versions)
+      const sessionPromise = sb.auth.getSession();
+      const timeoutPromise = new Promise((resolve) =>
+        setTimeout(() => resolve({ data: { session: null }, __timedOut: true }), 4000)
+      );
+      const result = await Promise.race([sessionPromise, timeoutPromise]);
+      const session = (result && result.data && result.data.session) || null;
+      if (result && result.__timedOut) {
+        console.warn("APC boot: getSession() timed out, defaulting to sign-in");
+      }
+
+      if (!session) {
+        renderHeader();
+        return renderSignIn();
+      }
+      state.user = session.user;
+      await ensureTester();
+      await loadOrCreateApplication();
 
     // Stamp tester with device info + last_seen
     if (state.tester) {
@@ -786,18 +813,21 @@
     } else {
       state.step = 1;
     }
-    state.stepStart = Date.now();
-    renderStep();
-    logSessionEvent("session_start");
+      state.stepStart = Date.now();
+      renderStep();
+      logSessionEvent("session_start");
 
-    // application_abandoned: log on visibility change while flow is open
-    // (drop-off is also inferable from missing later step_completed events)
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" &&
-          state.application && state.application.status !== "completed") {
-        logSessionEvent("application_abandoned", { left_at_step: state.step });
-      }
-    });
+      // application_abandoned: log on visibility change while flow is open
+      // (drop-off is also inferable from missing later step_completed events)
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden" &&
+            state.application && state.application.status !== "completed") {
+          logSessionEvent("application_abandoned", { left_at_step: state.step });
+        }
+      });
+    } catch (err) {
+      safeFallbackToSignIn((err && err.message) || String(err));
+    }
   }
 
   sb.auth.onAuthStateChange((_event, session) => {
