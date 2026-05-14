@@ -75,11 +75,11 @@
 
 <footer class="apc-footer">
   <div>APC admin · Beta build · Test data only</div>
-  <div class="apc-build">Beta Build v0.4.1</div>
+  <div class="apc-build">Beta Build v0.4.2</div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="./config.js?v=0.4.1"></script>
+<script src="./config.js?v=0.4.2"></script>
 <script>
 (function () {
   const sb = window.supabaseClient;
@@ -243,6 +243,11 @@
       </div>
 
       <div class="card">
+        <h2>APC chase queue</h2>
+        ${renderChaseQueueAdmin(apps, testers)}
+      </div>
+
+      <div class="card">
         <h2>Step funnel</h2>
         <p class="muted">How many testers reached each step.</p>
         <div class="funnel" style="margin-top:30px;margin-bottom:30px">
@@ -325,7 +330,7 @@
     );
     $("#csv-apps").onclick = () => downloadCSV(
       `apc-beta-applications-${todayStr()}.csv`,
-      toCSV(apps, ["id","tester_id","status","application_progress","generated_property_town","generated_property_type","generated_bedrooms","generated_capacity","generated_risk_score","guest_capacity_band","compliance_path","manual_review_required","scie_flag","scie_details","final_compliance_score","final_compliance_band","compliance_answers","uploaded_documents","feedback_data","created_at","completed_at"])
+      toCSV(apps, ["id","tester_id","status","application_progress","generated_property_town","generated_property_type","generated_bedrooms","generated_capacity","generated_risk_score","guest_capacity_band","compliance_path","manual_review_required","scie_flag","scie_details","doc_status_records","uploaded_docs_count","pending_docs_count","missing_docs_count","provisional_compliance","apc_chase_required","final_compliance_score","final_compliance_band","compliance_answers","uploaded_documents","feedback_data","created_at","completed_at"])
     );
     $("#csv-feedback").onclick = () => downloadCSV(
       `apc-beta-feedback-${todayStr()}.csv`,
@@ -431,6 +436,112 @@
       <table id="adm-routing-table" class="admin-table">
         <thead><tr><th>Tester</th><th>Capacity</th><th>Path</th><th>Manual review</th><th>SCIE details</th></tr></thead>
         <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  // ---------- v0.4.2 — APC chase queue (per-doc-status) ----------
+  function renderChaseQueueAdmin(apps, testers) {
+    const testerById = Object.fromEntries((testers||[]).map(t => [t.id, t]));
+    const REASON_LABELS = {
+      previous_owner:  "Previous owner has it",
+      professional:    "Accountant / lawyer",
+      request_council: "Need to request from council",
+      never_issued:    "Never received one",
+      unsure_exists:   "Not sure if it exists",
+      will_upload:     "Will upload later",
+      other:           "Other"
+    };
+
+    // Roll-up totals
+    let upl=0, pen=0, mis=0, prov=0, chase=0;
+    const reasonCounts = {};
+    const chaseRows = [];
+    apps.forEach(a => {
+      upl += a.uploaded_docs_count || 0;
+      pen += a.pending_docs_count  || 0;
+      mis += a.missing_docs_count  || 0;
+      if (a.provisional_compliance) prov++;
+      if (a.apc_chase_required)     chase++;
+      const recs = a.doc_status_records || {};
+      DOC_SLOTS_ADMIN.forEach(d => {
+        const r = recs[d.slot] || {};
+        const filesForSlot = (a.uploaded_documents||[]).filter(it => it.slot === d.slot);
+        if (filesForSlot.length > 0) return; // uploaded, not a chase item
+        if (r.status === "missing" || r.status === "pending") {
+          if (r.status === "missing" && r.reason_code) {
+            reasonCounts[r.reason_code] = (reasonCounts[r.reason_code]||0) + 1;
+          }
+          const t = testerById[a.tester_id] || {};
+          chaseRows.push({
+            tester: t.full_name || t.email || a.tester_id.slice(0,8),
+            email:  t.email || "",
+            doc:    d.title,
+            slot:   d.slot,
+            status: r.status,
+            reason: r.status === "missing" ? (REASON_LABELS[r.reason_code] || "—") : "—",
+            reason_other: r.reason_text || "",
+            updated_at: r.updated_at
+          });
+        }
+      });
+    });
+    chaseRows.sort((a,b) => (b.updated_at||"").localeCompare(a.updated_at||""));
+
+    const stats = `
+      <div class="admin-stats">
+        <div class="stat"><div class="stat-val">${upl}</div><div class="stat-lbl">Docs uploaded</div></div>
+        <div class="stat"><div class="stat-val">${pen}</div><div class="stat-lbl">Pending upload</div></div>
+        <div class="stat"><div class="stat-val">${mis}</div><div class="stat-lbl">APC follow-up</div></div>
+        <div class="stat"><div class="stat-val">${chase}</div><div class="stat-lbl">Apps needing chase</div></div>
+        <div class="stat"><div class="stat-val">${prov}</div><div class="stat-lbl">Provisional status</div></div>
+      </div>`;
+
+    const reasonBreakdown = Object.keys(reasonCounts).length ? `
+      <div style="margin:14px 0 10px 0;font-size:13px;color:#2a3142">
+        <strong>Missing-doc reasons:</strong>
+        ${Object.entries(reasonCounts).map(([code,c]) => `<span class="adm-badge adm-badge-cap" style="margin:0 6px 6px 0;display:inline-block">${esc(REASON_LABELS[code]||code)}: ${c}</span>`).join("")}
+      </div>` : "";
+
+    const filter = `
+      <div class="adm-filter-row">
+        <label>Status filter:
+          <select id="adm-chase-filter">
+            <option value="all">All chase items</option>
+            <option value="missing">APC follow-up (missing)</option>
+            <option value="pending">Pending upload only</option>
+          </select>
+        </label>
+      </div>`;
+
+    const rowsHTML = chaseRows.length ? chaseRows.map(r => {
+      const statusBadge = r.status === "missing"
+        ? '<span class="adm-badge adm-badge-scie">APC follow-up</span>'
+        : '<span class="adm-badge adm-badge-cap">Pending</span>';
+      return `<tr data-status="${r.status}">
+        <td>${esc(r.tester)}</td>
+        <td>${esc(r.doc)}</td>
+        <td>${statusBadge}</td>
+        <td>${esc(r.reason)}${r.reason_other ? ` — “${esc(r.reason_other)}”` : ""}</td>
+        <td>${r.updated_at ? fmtDate(r.updated_at) : "—"}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="5" style="text-align:center;color:var(--apc-muted);padding:14px">No chase items yet — the queue is clear.</td></tr>`;
+
+    setTimeout(() => {
+      const sel = document.getElementById("adm-chase-filter");
+      if (sel) sel.onchange = () => {
+        const v = sel.value;
+        document.querySelectorAll("#adm-chase-table tbody tr[data-status]").forEach(tr => {
+          tr.style.display = (v === "all" || tr.getAttribute("data-status") === v) ? "" : "none";
+        });
+      };
+    }, 0);
+
+    return `${stats}
+      ${reasonBreakdown}
+      ${filter}
+      <table id="adm-chase-table" class="admin-table">
+        <thead><tr><th>Tester</th><th>Document</th><th>Status</th><th>Reason</th><th>Last updated</th></tr></thead>
+        <tbody>${rowsHTML}</tbody>
       </table>`;
   }
 

@@ -630,60 +630,145 @@
     };
   }
 
-  // STEP 5 — Required Documents (structured slots + additional)
+  // STEP 5 — Document Status Workflow (v0.4.2)
+  // Each slot has 3 possible states: uploaded | pending | missing
   const DOC_SLOTS = [
-    { section: "Identity & Ownership", slot: "passport_id",      title: "Passport / Government ID",   helper: "Photo or scan of passport or government-issued ID.",                              required: false },
-    { section: "Identity & Ownership", slot: "property_ownership", title: "Proof of Property Ownership", helper: "Land registry, deed, escritura or ownership document.",                            required: false },
-    { section: "Property Compliance",  slot: "al_licence",        title: "Existing AL Licence",        helper: "Upload your current Alojamento Local licence if available.",                       required: false },
-    { section: "Property Compliance",  slot: "insurance",         title: "Property Insurance",         helper: "Public liability or property insurance documentation.",                            required: false },
-    { section: "Property Compliance",  slot: "fire_safety",       title: "Fire Safety Documentation",  helper: "Fire safety certificates, assessments or inspection records.",                    required: false },
-    { section: "Property Compliance",  slot: "floor_plan",        title: "Floor Plan / Property Layout", helper: "Floor plan or property layout if available.",                                    required: false },
-    { section: "Property Compliance",  slot: "utility_tax",       title: "Utility / Tax Documentation", helper: "Utility bill, council tax or property tax documentation.",                       required: false },
+    { section: "Identity & Ownership", slot: "passport_id",        title: "Passport / Government ID",     helper: "Photo or scan of passport or government-issued ID." },
+    { section: "Identity & Ownership", slot: "property_ownership", title: "Proof of Property Ownership",  helper: "Land registry, deed, escritura or ownership document." },
+    { section: "Property Compliance",  slot: "al_licence",         title: "Existing AL Licence",          helper: "Your current Alojamento Local licence document." },
+    { section: "Property Compliance",  slot: "insurance",          title: "Property Insurance",           helper: "Public liability or property insurance documentation." },
+    { section: "Property Compliance",  slot: "fire_safety",        title: "Fire Safety Documentation",    helper: "Fire safety certificates, assessments or inspection records." },
+    { section: "Property Compliance",  slot: "floor_plan",         title: "Floor Plan / Property Layout", helper: "Floor plan or property layout document." },
+    { section: "Property Compliance",  slot: "utility_tax",        title: "Utility / Tax Documentation",  helper: "Utility bill, council tax or property tax documentation." },
   ];
   const ADDITIONAL_SLOT = "additional";
 
+  const MISSING_REASONS = [
+    { code: "previous_owner",  label: "Previous owner has it" },
+    { code: "professional",    label: "Accountant / lawyer has it" },
+    { code: "request_council", label: "Need to request from council" },
+    { code: "never_issued",    label: "Never received one" },
+    { code: "unsure_exists",   label: "Not sure if it exists" },
+    { code: "will_upload",     label: "Will upload later" },
+    { code: "other",           label: "Other" },
+  ];
+
   async function renderUpload() {
+    // ---------- read current state ----------
     const items = state.application.uploaded_documents || [];
     const bySlot = {};
     items.forEach(it => {
       const key = it.slot || "_legacy";
       (bySlot[key] = bySlot[key] || []).push(it);
     });
+    const statusMap = state.application.doc_status_records || {};
+
+    // Derive per-slot status: uploaded (file present) wins, else read explicit status
+    const slotState = (slotKey) => {
+      const rec = statusMap[slotKey] || {};
+      const hasFile = (bySlot[slotKey] || []).length > 0;
+      if (hasFile) return { status: "uploaded", rec, file: bySlot[slotKey][0] };
+      if (rec.status === "pending" || rec.status === "missing") return { status: rec.status, rec, file: null };
+      return { status: "unchosen", rec, file: null };
+    };
+
+    // Counters
+    const counters = { uploaded: 0, pending: 0, missing: 0, unchosen: 0 };
+    DOC_SLOTS.forEach(d => { counters[slotState(d.slot).status]++; });
 
     const sections = {};
     DOC_SLOTS.forEach(d => { (sections[d.section] = sections[d.section] || []).push(d); });
 
+    // ---------- card HTML ----------
     const slotCardHTML = (d) => {
-      const uploaded = (bySlot[d.slot] || []);
-      const hasFile = uploaded.length > 0;
-      const u = uploaded[0]; // single-file per slot for v1
+      const s = slotState(d.slot);
+      const reasonRec = s.rec || {};
+      const cls =
+        s.status === "uploaded" ? " doc-card-done" :
+        s.status === "pending"  ? " doc-card-pending" :
+        s.status === "missing"  ? " doc-card-missing" : "";
+      const badge =
+        s.status === "uploaded" ? `<span class="doc-badge doc-badge-uploaded">✅ Uploaded</span>` :
+        s.status === "pending"  ? `<span class="doc-badge doc-badge-pending">⏳ Pending upload</span>` :
+        s.status === "missing"  ? `<span class="doc-badge doc-badge-missing">📩 APC follow-up</span>` :
+                                  `<span class="doc-badge doc-badge-required">REQUIRED</span>`;
+
+      // Body varies per state
+      let body = "";
+      if (s.status === "uploaded") {
+        const u = s.file;
+        body = `
+          <div class="doc-card-status">
+            <div class="doc-uploaded-row">
+              <span class="doc-tick">✅ Uploaded</span>
+              <span class="doc-filename">${escapeHTML(u.name)}</span>
+            </div>
+            <div class="doc-uploaded-meta muted">${new Date(u.uploaded_at).toLocaleString()} · ${(u.size/1024).toFixed(0)} KB</div>
+            <div class="doc-actions">
+              <button type="button" class="btn btn-secondary btn-sm doc-replace" data-slot="${d.slot}">Replace</button>
+              <button type="button" class="btn btn-link btn-sm doc-remove" data-slot="${d.slot}">Remove</button>
+            </div>
+          </div>`;
+      } else if (s.status === "pending") {
+        body = `
+          <div class="doc-state-block doc-state-pending">
+            <div class="doc-state-msg"><strong>We'll remind you to upload this later.</strong> No rush — keep moving and add it when you have it to hand.</div>
+            <div class="doc-actions">
+              <button type="button" class="btn btn-secondary btn-sm doc-action-upload" data-slot="${d.slot}">Upload now</button>
+              <button type="button" class="btn btn-link btn-sm doc-action-clear" data-slot="${d.slot}">Change answer</button>
+            </div>
+          </div>`;
+      } else if (s.status === "missing") {
+        const reasonLabel = (MISSING_REASONS.find(r => r.code === reasonRec.reason_code) || {}).label || "Reason not given";
+        const showOther = reasonRec.reason_code === "other" && reasonRec.reason_text;
+        body = `
+          <div class="doc-state-block doc-state-missing">
+            <div class="doc-state-msg"><strong>APC will follow up.</strong> We'll help you obtain or replace this document. Reason: <em>${escapeHTML(reasonLabel)}</em>${showOther ? ` — “${escapeHTML(reasonRec.reason_text)}”` : ""}</div>
+            <div class="doc-actions">
+              <button type="button" class="btn btn-secondary btn-sm doc-action-upload" data-slot="${d.slot}">Upload now</button>
+              <button type="button" class="btn btn-link btn-sm doc-action-clear" data-slot="${d.slot}">Change answer</button>
+            </div>
+          </div>`;
+      } else {
+        // unchosen — show 3 options
+        body = `
+          <div class="doc-choice-row">
+            <button type="button" class="doc-choice doc-choice-upload" data-slot="${d.slot}" data-action="upload">
+              <span class="doc-choice-icon">⬆︎</span><span class="doc-choice-label">Upload now</span>
+            </button>
+            <button type="button" class="doc-choice doc-choice-missing" data-slot="${d.slot}" data-action="missing">
+              <span class="doc-choice-icon">✕</span><span class="doc-choice-label">I don't have it</span>
+            </button>
+            <button type="button" class="doc-choice doc-choice-pending" data-slot="${d.slot}" data-action="pending">
+              <span class="doc-choice-icon">⏰</span><span class="doc-choice-label">Have it, not here now</span>
+            </button>
+          </div>
+          <input type="file" id="file-${d.slot}" class="doc-file-input hidden" data-slot="${d.slot}" accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" />
+          <div class="doc-reason-panel hidden" id="reason-${d.slot}">
+            <label for="reason-select-${d.slot}">Why don't you have this document?</label>
+            <select id="reason-select-${d.slot}" class="doc-reason-select" data-slot="${d.slot}">
+              <option value="">— Select a reason —</option>
+              ${MISSING_REASONS.map(r => `<option value="${r.code}">${escapeHTML(r.label)}</option>`).join("")}
+            </select>
+            <input type="text" id="reason-other-${d.slot}" class="doc-reason-other hidden" maxlength="160" placeholder="Please tell us a bit more…" />
+            <div class="doc-actions">
+              <button type="button" class="btn btn-primary btn-sm doc-reason-confirm" data-slot="${d.slot}">Confirm</button>
+              <button type="button" class="btn btn-link btn-sm doc-reason-cancel" data-slot="${d.slot}">Cancel</button>
+            </div>
+          </div>`;
+      }
+
       return `
-        <div class="doc-card${hasFile ? ' doc-card-done' : ''}" data-slot="${d.slot}">
+        <div class="doc-card${cls}" data-slot="${d.slot}">
           <div class="doc-card-head">
             <div class="doc-card-title">${escapeHTML(d.title)}</div>
-            <span class="doc-badge ${d.required ? 'doc-badge-required' : 'doc-badge-optional'}">${d.required ? 'REQUIRED' : 'OPTIONAL'}</span>
+            ${badge}
           </div>
           <div class="doc-card-helper">${escapeHTML(d.helper)}</div>
           <div class="doc-card-types muted">Accepts: PDF, JPG or PNG · up to 10 MB</div>
-          ${hasFile ? `
-            <div class="doc-card-status">
-              <div class="doc-uploaded-row">
-                <span class="doc-tick">✅ Uploaded</span>
-                <span class="doc-filename">${escapeHTML(u.name)}</span>
-              </div>
-              <div class="doc-uploaded-meta muted">${new Date(u.uploaded_at).toLocaleString()} · ${(u.size/1024).toFixed(0)} KB</div>
-              <div class="doc-actions">
-                <button type="button" class="btn btn-secondary btn-sm doc-replace" data-slot="${d.slot}">Replace</button>
-                <button type="button" class="btn btn-link btn-sm doc-remove" data-slot="${d.slot}">Remove</button>
-              </div>
-            </div>
-          ` : `
-            <label class="btn btn-secondary doc-upload-btn" for="file-${d.slot}">Choose file</label>
-            <input type="file" id="file-${d.slot}" class="doc-file-input" data-slot="${d.slot}" accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" />
-          `}
+          ${body}
           <div class="doc-card-msg" id="msg-${d.slot}"></div>
-        </div>
-      `;
+        </div>`;
     };
 
     const additionalItems = (bySlot[ADDITIONAL_SLOT] || []);
@@ -699,15 +784,36 @@
       </li>
     `).join('');
 
+    // ---------- provisional summary block ----------
+    const total = DOC_SLOTS.length;
+    const provisional = (counters.pending + counters.missing + counters.unchosen) > 0;
+    const summaryHTML = `
+      <div class="doc-summary ${provisional ? "doc-summary-provisional" : "doc-summary-complete"}">
+        <div class="doc-summary-head">
+          <span class="doc-summary-pill">${provisional ? "🟡 Provisional" : "🟢 Complete"}</span>
+          <span class="doc-summary-text">${provisional
+            ? "Some documents are still missing or pending review — APC will help you complete these."
+            : "All required documents have been provided."}</span>
+        </div>
+        <div class="doc-summary-tiles">
+          <div class="doc-tile doc-tile-uploaded"><div class="doc-tile-num">${counters.uploaded}</div><div class="doc-tile-lbl">Uploaded</div></div>
+          <div class="doc-tile doc-tile-pending"><div class="doc-tile-num">${counters.pending}</div><div class="doc-tile-lbl">Pending upload</div></div>
+          <div class="doc-tile doc-tile-missing"><div class="doc-tile-num">${counters.missing}</div><div class="doc-tile-lbl">APC follow-up</div></div>
+          <div class="doc-tile doc-tile-unchosen"><div class="doc-tile-num">${counters.unchosen}</div><div class="doc-tile-lbl">Not answered</div></div>
+        </div>
+      </div>`;
+
     let html = `
       <div class="card">
         ${renderSteps(5)}
         <h2>Required Documents</h2>
-        <p class="muted">Upload any documents you currently have available. Most documents are optional during beta testing.</p>
+        <p class="muted">For each document, tell us if you have it. If you don't, that's fine — APC will help you obtain it. We just need a clear picture.</p>
+
+        ${summaryHTML}
 
         <details class="doc-why">
           <summary>Why we ask for documents</summary>
-          <p class="muted">These documents help us understand your property and assess which compliance requirements may apply. We never share them outside the APC team.</p>
+          <p class="muted">These documents help us assess which compliance requirements apply to your property and produce an accurate compliance picture. We never share them outside the APC team.</p>
         </details>
     `;
 
@@ -735,11 +841,38 @@
           <button class="btn btn-secondary" id="btn-back">Back</button>
           <button class="btn btn-primary" id="btn-next">Continue</button>
         </div>
-        <p class="muted" style="text-align:center;margin-top:10px">You can skip uploads and continue — they're optional for the beta.</p>
+        <p class="muted" style="text-align:center;margin-top:10px">You can answer all seven items now — upload, mark missing, or come back later. APC will pick up the rest.</p>
       </div>
     `;
 
     main().innerHTML = html;
+
+    // ---------- doc-status persistence ----------
+    async function persistStatus(slot, patch) {
+      const current = state.application.doc_status_records || {};
+      const next = { ...current, [slot]: { ...(current[slot]||{}), ...patch, updated_at: new Date().toISOString() } };
+      // Recompute counters
+      let upl=0, pen=0, mis=0;
+      DOC_SLOTS.forEach(d => {
+        const hasFile = (state.application.uploaded_documents||[]).some(it => it.slot === d.slot);
+        const recStatus = (next[d.slot]||{}).status;
+        if (hasFile) upl++;
+        else if (recStatus === "pending") pen++;
+        else if (recStatus === "missing") mis++;
+      });
+      const provisional = (upl < DOC_SLOTS.length) || (pen + mis > 0);
+      const chase = mis > 0 || pen > 0;
+      const { data, error } = await sb.from("beta_applications").update({
+        doc_status_records: next,
+        uploaded_docs_count: upl,
+        pending_docs_count: pen,
+        missing_docs_count: mis,
+        provisional_compliance: provisional,
+        apc_chase_required: chase
+      }).eq("id", state.application.id).select().single();
+      if (error) throw new Error("Save failed: " + error.message);
+      state.application = data;
+    }
 
     // ---- helpers ----
     async function persistItems(newItems) {
@@ -796,7 +929,93 @@
       logSessionEvent("upload_removed", { slot: slotForLog });
     }
 
-    // ---- wire named-slot inputs ----
+    // ---- wire 3-state choice buttons ----
+    document.querySelectorAll(".doc-choice").forEach(btn => {
+      btn.onclick = async () => {
+        const slot = btn.dataset.slot;
+        const action = btn.dataset.action;
+        if (action === "upload") {
+          document.getElementById("file-" + slot)?.click();
+        } else if (action === "pending") {
+          await persistStatus(slot, { status: "pending", reason_code: null, reason_text: null });
+          logSessionEvent("doc_status_set", { slot, status: "pending" });
+          renderUpload();
+        } else if (action === "missing") {
+          // Reveal the reason panel inline
+          document.getElementById("reason-" + slot)?.classList.remove("hidden");
+          btn.closest(".doc-choice-row")?.classList.add("hidden");
+        }
+      };
+    });
+
+    // ---- wire reason dropdowns ----
+    document.querySelectorAll(".doc-reason-select").forEach(sel => {
+      sel.onchange = () => {
+        const slot = sel.dataset.slot;
+        const other = document.getElementById("reason-other-" + slot);
+        if (other) other.classList.toggle("hidden", sel.value !== "other");
+      };
+    });
+    document.querySelectorAll(".doc-reason-confirm").forEach(btn => {
+      btn.onclick = async () => {
+        const slot = btn.dataset.slot;
+        const sel = document.getElementById("reason-select-" + slot);
+        const other = document.getElementById("reason-other-" + slot);
+        const msgEl = document.getElementById("msg-" + slot);
+        const code = sel.value;
+        if (!code) {
+          msgEl.innerHTML = `<div class="alert alert-bad">Please select a reason.</div>`;
+          return;
+        }
+        const text = code === "other" ? (other.value || "").trim() : null;
+        if (code === "other" && text.length < 3) {
+          msgEl.innerHTML = `<div class="alert alert-bad">Please tell us a bit more.</div>`;
+          return;
+        }
+        await persistStatus(slot, { status: "missing", reason_code: code, reason_text: text });
+        logSessionEvent("doc_status_set", { slot, status: "missing", reason_code: code });
+        renderUpload();
+      };
+    });
+    document.querySelectorAll(".doc-reason-cancel").forEach(btn => {
+      btn.onclick = () => {
+        const slot = btn.dataset.slot;
+        document.getElementById("reason-" + slot)?.classList.add("hidden");
+        btn.closest(".doc-card")?.querySelector(".doc-choice-row")?.classList.remove("hidden");
+      };
+    });
+
+    // ---- wire 'Upload now' / 'Change answer' on pending/missing cards ----
+    document.querySelectorAll(".doc-action-upload").forEach(btn => {
+      btn.onclick = () => {
+        const slot = btn.dataset.slot;
+        const tmp = document.createElement("input");
+        tmp.type = "file";
+        tmp.accept = ".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf";
+        tmp.onchange = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const msgEl = document.getElementById("msg-" + slot);
+          const ok = await doUpload(file, { slot }, msgEl);
+          if (ok) {
+            // Clear any prior pending/missing status
+            await persistStatus(slot, { status: null, reason_code: null, reason_text: null });
+            renderUpload();
+          }
+        };
+        tmp.click();
+      };
+    });
+    document.querySelectorAll(".doc-action-clear").forEach(btn => {
+      btn.onclick = async () => {
+        const slot = btn.dataset.slot;
+        await persistStatus(slot, { status: null, reason_code: null, reason_text: null });
+        logSessionEvent("doc_status_cleared", { slot });
+        renderUpload();
+      };
+    });
+
+    // ---- wire named-slot inputs (the hidden file inputs used by 'Upload now') ----
     document.querySelectorAll(".doc-file-input[data-slot]").forEach(inp => {
       inp.onchange = async (e) => {
         const file = e.target.files[0];
@@ -804,8 +1023,11 @@
         const slot = inp.dataset.slot;
         const msgEl = document.getElementById("msg-" + slot);
         const ok = await doUpload(file, { slot }, msgEl);
-        if (ok) renderUpload();
-        else e.target.value = "";
+        if (ok) {
+          // upload supersedes any prior status
+          await persistStatus(slot, { status: null, reason_code: null, reason_text: null });
+          renderUpload();
+        } else e.target.value = "";
       };
     });
 
