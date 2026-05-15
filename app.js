@@ -852,7 +852,9 @@
           <option value="yes" ${a.safety==="yes"?"selected":""}>Yes, both</option>
           <option value="partial" ${a.safety==="partial"?"selected":""}>One but not the other</option>
           <option value="no" ${a.safety==="no"?"selected":""}>No</option>
+          <option value="need_help" ${a.safety==="need_help"?"selected":""}>No — I need someone to carry out the work</option>
         </select>
+        <div id="safety-help-msg" class="helper-note" style="display:${a.safety==="need_help"?"block":"none"};margin-top:-6px;margin-bottom:14px;padding:10px 12px;background:#eef4ff;border-left:3px solid #2456c9;border-radius:4px;font-size:13px;color:#1d2a45">We can help connect you with a trusted local compliance professional after your application is submitted.</div>
 
         <label>Is the Licença de Utilização (habitation licence) for tourist use?</label>
         <select id="q-licenca">
@@ -880,13 +882,22 @@
       </div>
     `;
     $("#btn-back").onclick = () => goStep(3);
+    // Toggle helper note when user picks the "need help" option on fire safety
+    $("#q-safety").addEventListener("change", (e) => {
+      const note = document.getElementById("safety-help-msg");
+      if (note) note.style.display = (e.target.value === "need_help") ? "block" : "none";
+    });
     $("#btn-next").onclick = async () => {
       const ans = {
         al_registered: $("#q-al").value,
         safety:        $("#q-safety").value,
         licenca:       $("#q-licenca").value,
         fiscal:        $("#q-fiscal").value,
-        notes:         $("#q-notes").value.trim()
+        notes:         $("#q-notes").value.trim(),
+        // Lightweight flag for downstream visibility — captured at the answer level.
+        // service_category is set to "fire_safety" when the safety dropdown asks for help.
+        service_help_requested: $("#q-safety").value === "need_help",
+        service_help_categories: $("#q-safety").value === "need_help" ? ["fire_safety"] : []
       };
       if (!ans.al_registered || !ans.safety || !ans.licenca || !ans.fiscal) {
         alert("Please answer all four questions before continuing.");
@@ -897,6 +908,9 @@
         .eq("id", state.application.id).select().maybeSingle();
       if (error) { alert("Could not save answers: " + error.message); return; }
       state.application = data || { ...state.application, compliance_answers: ans };
+      if (ans.service_help_requested) {
+        logSessionEvent("service_help_requested", { source: "step4_safety", category: "fire_safety", application_id: state.application.id, property_id: state.application.property_id || null });
+      }
       goStep(5);
     };
   }
@@ -930,13 +944,14 @@
   const ADDITIONAL_SLOT = "additional";
 
   const MISSING_REASONS = [
-    { code: "previous_owner",  label: "Previous owner has it" },
-    { code: "professional",    label: "Accountant / lawyer has it" },
-    { code: "request_council", label: "Need to request from council" },
-    { code: "never_issued",    label: "Never received one" },
-    { code: "unsure_exists",   label: "Not sure if it exists" },
-    { code: "will_upload",     label: "Will upload later" },
-    { code: "other",           label: "Other" },
+    { code: "previous_owner",        label: "Previous owner has it" },
+    { code: "professional",          label: "Accountant / lawyer has it" },
+    { code: "request_council",       label: "Need to request from council" },
+    { code: "never_issued",          label: "Never received one" },
+    { code: "unsure_exists",         label: "Not sure if it exists" },
+    { code: "will_upload",           label: "Will upload later" },
+    { code: "service_help_requested", label: "I need someone to carry out the work" },
+    { code: "other",                 label: "Other" },
   ];
 
   async function renderUpload() {
@@ -1037,6 +1052,7 @@
               ${MISSING_REASONS.map(r => `<option value="${r.code}">${escapeHTML(r.label)}</option>`).join("")}
             </select>
             <input type="text" id="reason-other-${d.slot}" class="doc-reason-other hidden" maxlength="160" placeholder="Please tell us a bit more…" />
+            <div class="doc-reason-help hidden" id="reason-help-${d.slot}" style="margin-top:8px;padding:10px 12px;background:#eef4ff;border-left:3px solid #2456c9;border-radius:4px;font-size:13px;color:#1d2a45">We can help connect you with a trusted local compliance professional after your application is submitted.</div>
             <div class="doc-actions">
               <button type="button" class="btn btn-primary btn-sm doc-reason-confirm" data-slot="${d.slot}">Confirm</button>
               <button type="button" class="btn btn-link btn-sm doc-reason-cancel" data-slot="${d.slot}">Cancel</button>
@@ -1242,6 +1258,8 @@
         const slot = sel.dataset.slot;
         const other = document.getElementById("reason-other-" + slot);
         if (other) other.classList.toggle("hidden", sel.value !== "other");
+        const help = document.getElementById("reason-help-" + slot);
+        if (help) help.classList.toggle("hidden", sel.value !== "service_help_requested");
       };
     });
     document.querySelectorAll(".doc-reason-confirm").forEach(btn => {
@@ -1262,6 +1280,9 @@
         }
         await persistStatus(slot, { status: "missing", reason_code: code, reason_text: text });
         logSessionEvent("doc_status_set", { slot, status: "missing", reason_code: code });
+        if (code === "service_help_requested") {
+          logSessionEvent("service_help_requested", { source: "step5_doc", category: slot, application_id: state.application.id, property_id: state.application.property_id || null });
+        }
         renderUpload();
       };
     });

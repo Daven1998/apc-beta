@@ -77,11 +77,11 @@
 
 <footer class="apc-footer">
   <div>APC admin · Beta build · Test data only</div>
-  <div class="apc-build">Beta Build v0.5.2</div>
+  <div class="apc-build">Beta Build v0.5.3</div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="./config.js?v=0.5.2-implicit"></script>
+<script src="./config.js?v=0.5.3"></script>
 <script>
 (function () {
   const sb = window.supabaseClient;
@@ -515,13 +515,14 @@
   function renderChaseQueueAdmin(apps, testers) {
     const testerById = Object.fromEntries((testers||[]).map(t => [t.id, t]));
     const REASON_LABELS = {
-      previous_owner:  "Previous owner has it",
-      professional:    "Accountant / lawyer",
-      request_council: "Need to request from council",
-      never_issued:    "Never received one",
-      unsure_exists:   "Not sure if it exists",
-      will_upload:     "Will upload later",
-      other:           "Other"
+      previous_owner:           "Previous owner has it",
+      professional:             "Accountant / lawyer",
+      request_council:          "Need to request from council",
+      never_issued:             "Never received one",
+      unsure_exists:            "Not sure if it exists",
+      will_upload:              "Will upload later",
+      service_help_requested:   "Needs help — carry out work",
+      other:                    "Other"
     };
 
     // Roll-up totals
