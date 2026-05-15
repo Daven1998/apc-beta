@@ -150,7 +150,16 @@
     window.location.reload();
   }
 
-  // ---------- Auth (magic link) ----------
+  // ---------- Auth (6-digit code, with magic link as fallback) ----------
+  function renderSigningInSpinner() {
+    main().innerHTML = `
+      <div class="card" style="text-align:center;padding:48px 24px;">
+        <div style="font-size:28px;margin-bottom:8px;">🔑</div>
+        <h1 style="margin:0 0 8px 0;">Signing you in…</h1>
+        <p class="muted">One moment — we're checking your sign-in link.</p>
+      </div>`;
+  }
+
   async function renderSignIn() {
     main().innerHTML = `
       <div class="card">
@@ -160,8 +169,8 @@
           No real documents, no real fees — this is a test environment.
         </p>
         <div class="alert alert-info">
-          <strong>How sign-in works:</strong> we'll email you a one-time link.
-          Tap the link in that email and you'll be signed in. No password.
+          <strong>How sign-in works:</strong> enter your email, we'll send you a
+          <strong>6-digit code</strong>. Type it in and you're in. No password, no link to chase.
         </div>
 
         <label for="email">Your email</label>
@@ -171,8 +180,21 @@
         <label for="name">Your name</label>
         <input id="name" type="text" autocomplete="name" placeholder="First and last name" />
 
-        <button class="btn btn-primary" id="btn-send">Email me a sign-in link</button>
+        <button class="btn btn-primary" id="btn-send">Send me my 6-digit code</button>
         <div id="signin-msg"></div>
+
+        <div id="otp-box" style="display:none;margin-top:18px;padding-top:18px;border-top:1px solid #E5E3DC;">
+          <label for="otp">Paste the 6-digit code from your email</label>
+          <input id="otp" type="text" inputmode="numeric" autocomplete="one-time-code"
+                 pattern="[0-9]{6}" maxlength="6"
+                 placeholder="123456"
+                 style="font-size:24px;letter-spacing:6px;text-align:center;font-family:monospace;" />
+          <button class="btn btn-primary" id="btn-verify">Verify and sign in</button>
+          <p class="muted" style="font-size:12px;margin-top:8px;">
+            Can't find the code? Check spam, or tap the link in the same email — either works.
+            Didn't get anything? <a href="#" id="btn-resend">Resend</a>.
+          </p>
+        </div>
       </div>
       <div class="card">
         <h2>What you'll do in the beta</h2>
@@ -187,6 +209,35 @@
         <p class="muted">Takes about 5–7 minutes on a phone.</p>
       </div>
     `;
+    let sentEmail = null;
+
+    async function sendCode(emailArg) {
+      const msg = $("#signin-msg");
+      $("#btn-send").disabled = true;
+      $("#btn-send").textContent = "Sending…";
+      const { error } = await sb.auth.signInWithOtp({
+        email: emailArg,
+        options: { emailRedirectTo: cfg.REDIRECT_URL, shouldCreateUser: true }
+      });
+      if (error) {
+        msg.innerHTML = `<div class="alert alert-bad">${escapeHTML(error.message)}</div>`;
+        $("#btn-send").disabled = false;
+        $("#btn-send").textContent = "Send me my 6-digit code";
+        return false;
+      }
+      sentEmail = emailArg;
+      msg.innerHTML = `
+        <div class="alert alert-ok">
+          <strong>Sent.</strong> We've emailed a 6-digit code to <strong>${escapeHTML(emailArg)}</strong>.
+          Paste it below.
+        </div>`;
+      $("#btn-send").textContent = "Code sent ✓ (resend)";
+      $("#btn-send").disabled = false;
+      $("#otp-box").style.display = "block";
+      setTimeout(() => { try { $("#otp").focus(); } catch(e){} }, 100);
+      return true;
+    }
+
     $("#btn-send").onclick = async () => {
       const email = $("#email").value.trim().toLowerCase();
       const name  = $("#name").value.trim();
@@ -200,25 +251,37 @@
         return;
       }
       try { localStorage.setItem("apc_pending_name", name); } catch (e) {}
-      $("#btn-send").disabled = true;
-      $("#btn-send").textContent = "Sending…";
-      const { error } = await sb.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: cfg.REDIRECT_URL }
-      });
-      if (error) {
-        msg.innerHTML = `<div class="alert alert-bad">${escapeHTML(error.message)}</div>`;
-        $("#btn-send").disabled = false;
-        $("#btn-send").textContent = "Email me a sign-in link";
+      await sendCode(email);
+    };
+
+    $("#btn-verify").onclick = async () => {
+      const token = $("#otp").value.trim();
+      const msg = $("#signin-msg");
+      if (!sentEmail) {
+        msg.innerHTML = `<div class="alert alert-bad">Please send yourself a code first.</div>`;
         return;
       }
-      msg.innerHTML = `
-        <div class="alert alert-ok">
-          <strong>Check your email.</strong>
-          We've sent a sign-in link to <strong>${escapeHTML(email)}</strong>.
-          Open it on this device.
-        </div>`;
-      $("#btn-send").textContent = "Link sent ✓";
+      if (!/^\d{6}$/.test(token)) {
+        msg.innerHTML = `<div class="alert alert-bad">Enter the 6-digit code from the email.</div>`;
+        return;
+      }
+      $("#btn-verify").disabled = true;
+      $("#btn-verify").textContent = "Checking…";
+      const { error } = await sb.auth.verifyOtp({ email: sentEmail, token, type: "email" });
+      if (error) {
+        msg.innerHTML = `<div class="alert alert-bad">${escapeHTML(error.message)}. Codes expire after 1 hour — send a new one if needed.</div>`;
+        $("#btn-verify").disabled = false;
+        $("#btn-verify").textContent = "Verify and sign in";
+        return;
+      }
+      // onAuthStateChange in boot() will fire and route the user.
+      renderSigningInSpinner();
+    };
+
+    $("#btn-resend").onclick = async (e) => {
+      e.preventDefault();
+      if (!sentEmail) return;
+      await sendCode(sentEmail);
     };
   }
 
@@ -1568,6 +1631,26 @@
   async function boot() {
     // 24h inactivity timeout (outside try — will sign user out cleanly)
     if (TRACK && TRACK.checkSessionTimeout(sb, () => window.location.reload())) return;
+
+    // If the URL carries a magic-link payload, show the spinner and wait
+    // for supabase-js to finish the exchange via onAuthStateChange.
+    const urlHasAuth =
+      /[?&]code=/.test(window.location.search) ||
+      /access_token=|refresh_token=|type=magiclink/.test(window.location.hash);
+    if (urlHasAuth) {
+      renderSigningInSpinner();
+      // Wait up to 8s for the session to materialise, then clean the URL.
+      const start = Date.now();
+      while (Date.now() - start < 8000) {
+        const { data: { session: s } } = await sb.auth.getSession();
+        if (s) break;
+        await new Promise(r => setTimeout(r, 250));
+      }
+      // Strip the auth params from the URL so a reload doesn't try to reuse them.
+      try {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {}
+    }
 
     // PHASE 1: get session. If this hangs or fails, fall back to sign-in.
     let session = null;
